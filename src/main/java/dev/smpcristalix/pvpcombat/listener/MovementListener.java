@@ -1,1 +1,59 @@
-package dev.smpcristalix.pvpcombat.listener;import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;import dev.smpcristalix.pvpcombat.service.*;import org.bukkit.Material;import org.bukkit.entity.Player;import org.bukkit.event.*;import org.bukkit.event.entity.EntityToggleGlideEvent;import org.bukkit.event.player.*;/** Элитры, fireworks and smooth full movement stun. */public final class MovementListener implements Listener{private final CombatService combat;private final AbilityService abilities;private PvPCombatSettings settings;public MovementListener(CombatService c,AbilityService a,PvPCombatSettings s){combat=c;abilities=a;settings=s;}public void reload(PvPCombatSettings s){settings=s;}@EventHandler(ignoreCancelled=true)public void onGlide(EntityToggleGlideEvent e){if(!(e.getEntity() instanceof Player p))return;if(e.isGliding()&&combat.inCombat(p)&&!settings.allowElytraInCombat())e.setCancelled(true);}@EventHandler(ignoreCancelled=true)public void onFirework(PlayerInteractEvent e){if(e.getItem()==null||e.getItem().getType()!=Material.FIREWORK_ROCKET)return;Player p=e.getPlayer();if(p.isGliding()&&combat.inCombat(p)&&!settings.allowFireworksInCombat()){e.setCancelled(true);p.sendMessage("§cФейерверки во время PvP Combat запрещены.");}}@EventHandler(ignoreCancelled=true)public void onMove(PlayerMoveEvent e){if(!abilities.isStunned(e.getPlayer())||e.getTo()==null)return;if(e.getFrom().getX()==e.getTo().getX()&&e.getFrom().getY()==e.getTo().getY()&&e.getFrom().getZ()==e.getTo().getZ())return;var locked=e.getFrom().clone();locked.setYaw(e.getTo().getYaw());locked.setPitch(e.getTo().getPitch());e.setTo(locked);}}
+package dev.smpcristalix.pvpcombat.listener;
+
+import com.destroystokyo.paper.event.player.PlayerElytraBoostEvent;
+import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
+import dev.smpcristalix.pvpcombat.service.AbilityService;
+import dev.smpcristalix.pvpcombat.service.CombatService;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityToggleGlideEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+
+/** Ограничения элитр/фейерверков и блокировка перемещения во время полного стана. */
+public final class MovementListener implements Listener {
+    private final CombatService combat;
+    private final AbilityService abilities;
+    private PvPCombatSettings settings;
+
+    public MovementListener(CombatService combat, AbilityService abilities, PvPCombatSettings settings) {
+        this.combat = combat;
+        this.abilities = abilities;
+        this.settings = settings;
+    }
+
+    public void reload(PvPCombatSettings settings) {
+        this.settings = settings;
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onGlide(EntityToggleGlideEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        if (!event.isGliding()) return;
+        if (combat.inCombat(player) && !settings.allowElytraInCombat()) event.setCancelled(true);
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onElytraBoost(PlayerElytraBoostEvent event) {
+        Player player = event.getPlayer();
+        if (combat.inCombat(player) && !settings.allowFireworksInCombat()) {
+            event.setCancelled(true);
+            player.sendMessage("§cУскорение фейерверком во время PvP Combat запрещено.");
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onMove(PlayerMoveEvent event) {
+        if (!abilities.isStunned(event.getPlayer()) || event.getTo() == null) return;
+        boolean changedPosition = event.getFrom().getX() != event.getTo().getX()
+                || event.getFrom().getY() != event.getTo().getY()
+                || event.getFrom().getZ() != event.getTo().getZ();
+        if (!changedPosition) return;
+
+        // Положение блокируем полностью, но оставляем возможность вращать камерой.
+        var locked = event.getFrom().clone();
+        locked.setYaw(event.getTo().getYaw());
+        locked.setPitch(event.getTo().getPitch());
+        event.setTo(locked);
+    }
+}
