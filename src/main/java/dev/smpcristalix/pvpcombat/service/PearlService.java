@@ -1,4 +1,73 @@
 package dev.smpcristalix.pvpcombat.service;
-import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;import org.bukkit.entity.Player;import java.util.*;
-/** PvPCombat-заряды жемчуга поверх ванильного cooldown. */
-public final class PearlService{private final Map<UUID,State> states=new HashMap<>();private PvPCombatSettings settings;public PearlService(PvPCombatSettings s){settings=s;}public void reload(PvPCombatSettings s){settings=s;}public boolean canThrow(Player p){State s=state(p);if(s.cooldownUntil>System.currentTimeMillis())return false;if(s.cooldownUntil!=0){s.cooldownUntil=0;s.used=0;}return s.used<settings.pearlCharges();}public void recordThrow(Player p){State s=state(p);s.used++;if(s.used>=settings.pearlCharges())s.cooldownUntil=System.currentTimeMillis()+settings.pearlRechargeSeconds()*1000L;}public int remaining(Player p){State s=state(p);if(s.cooldownUntil>System.currentTimeMillis())return 0;return Math.max(0,settings.pearlCharges()-s.used);}public long cooldownSeconds(Player p){long ms=state(p).cooldownUntil-System.currentTimeMillis();return ms<=0?0:(ms+999)/1000;}public void reset(Player p){states.remove(p.getUniqueId());}private State state(Player p){return states.computeIfAbsent(p.getUniqueId(),x->new State());}private static final class State{int used;long cooldownUntil;}}
+
+import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
+import org.bukkit.entity.Player;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+/** Три (по умолчанию) PvPCombat-заряда жемчуга поверх ванильного cooldown. */
+public final class PearlService {
+    private final Map<UUID, PearlState> states = new HashMap<>();
+    private PvPCombatSettings settings;
+
+    public PearlService(PvPCombatSettings settings) {
+        this.settings = settings;
+    }
+
+    public void reload(PvPCombatSettings settings) {
+        this.settings = settings;
+    }
+
+    public boolean canThrow(Player player) {
+        PearlState state = state(player);
+        normalizeCooldown(state);
+        return state.cooldownUntilMillis == 0L && state.usedCharges < settings.pearlCharges();
+    }
+
+    public void recordThrow(Player player) {
+        PearlState state = state(player);
+        normalizeCooldown(state);
+        state.usedCharges++;
+        if (state.usedCharges >= settings.pearlCharges()) {
+            state.cooldownUntilMillis = System.currentTimeMillis() + settings.pearlRechargeSeconds() * 1000L;
+        }
+    }
+
+    public int remaining(Player player) {
+        PearlState state = state(player);
+        normalizeCooldown(state);
+        if (state.cooldownUntilMillis != 0L) return 0;
+        return Math.max(0, settings.pearlCharges() - state.usedCharges);
+    }
+
+    public long cooldownSeconds(Player player) {
+        PearlState state = state(player);
+        normalizeCooldown(state);
+        if (state.cooldownUntilMillis == 0L) return 0L;
+        long remainingMillis = state.cooldownUntilMillis - System.currentTimeMillis();
+        return Math.max(0L, (remainingMillis + 999L) / 1000L);
+    }
+
+    /** Новый отдельный Combat начинается с полного набора зарядов. */
+    public void reset(Player player) {
+        states.remove(player.getUniqueId());
+    }
+
+    private void normalizeCooldown(PearlState state) {
+        if (state.cooldownUntilMillis == 0L) return;
+        if (state.cooldownUntilMillis > System.currentTimeMillis()) return;
+        state.cooldownUntilMillis = 0L;
+        state.usedCharges = 0;
+    }
+
+    private PearlState state(Player player) {
+        return states.computeIfAbsent(player.getUniqueId(), ignored -> new PearlState());
+    }
+
+    private static final class PearlState {
+        private int usedCharges;
+        private long cooldownUntilMillis;
+    }
+}
