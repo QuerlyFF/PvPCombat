@@ -1,4 +1,97 @@
 package dev.smpcristalix.pvpcombat.service;
-import dev.smpcristalix.pvpcombat.PvPCombatPlugin;import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;import net.kyori.adventure.text.Component;import net.kyori.adventure.text.format.NamedTextColor;import org.bukkit.*;import org.bukkit.entity.Player;import org.bukkit.inventory.*;import org.bukkit.inventory.meta.ItemMeta;import org.bukkit.persistence.PersistentDataType;import java.util.List;
-/** Осколок распознаётся по PDC-метке, а не по названию предмета. */
-public final class ShardService{private final NamespacedKey key;private PvPCombatSettings settings;public ShardService(PvPCombatPlugin p,PvPCombatSettings s){key=new NamespacedKey(p,"shard");settings=s;}public void reload(PvPCombatSettings s){settings=s;}public ItemStack create(int amount){Material m=Material.matchMaterial(settings.shardMaterial());if(m==null)m=Material.AMETHYST_SHARD;ItemStack item=new ItemStack(m,Math.max(1,amount));ItemMeta meta=item.getItemMeta();meta.displayName(Component.text(ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&',settings.shardName())),NamedTextColor.LIGHT_PURPLE));meta.lore(List.of(Component.text("ПКМ — открыть прокачку характеристик.",NamedTextColor.GRAY),Component.text("Предмет PvPCombat",NamedTextColor.DARK_GRAY)));meta.getPersistentDataContainer().set(key,PersistentDataType.BYTE,(byte)1);item.setItemMeta(meta);return item;}public boolean isShard(ItemStack i){if(i==null||i.getType().isAir()||!i.hasItemMeta())return false;Byte v=i.getItemMeta().getPersistentDataContainer().get(key,PersistentDataType.BYTE);return v!=null&&v==1;}public void give(Player p,int a){if(a<=0)return;p.getInventory().addItem(create(a)).values().forEach(x->p.getWorld().dropItemNaturally(p.getLocation(),x));}public boolean consumeOne(Player p){ItemStack[] c=p.getInventory().getContents();for(int i=0;i<c.length;i++){ItemStack x=c[i];if(!isShard(x))continue;if(x.getAmount()<=1)p.getInventory().setItem(i,null);else x.setAmount(x.getAmount()-1);return true;}return false;}public int count(Player p){int n=0;for(ItemStack i:p.getInventory().getContents())if(isShard(i))n+=i.getAmount();return n;}}
+
+import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
+import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
+
+import java.util.List;
+
+/** Осколок распознаётся по PDC-метке, а не по материалу или названию. */
+public final class ShardService {
+    private final NamespacedKey key;
+    private final LegacyComponentSerializer legacy = LegacyComponentSerializer.legacyAmpersand();
+    private PvPCombatSettings settings;
+
+    public ShardService(PvPCombatPlugin plugin, PvPCombatSettings settings) {
+        this.key = new NamespacedKey(plugin, "shard");
+        this.settings = settings;
+    }
+
+    public void reload(PvPCombatSettings settings) {
+        this.settings = settings;
+    }
+
+    public ItemStack create(int amount) {
+        Material material = Material.matchMaterial(settings.shardMaterial());
+        if (material == null) material = Material.AMETHYST_SHARD;
+
+        ItemStack item = new ItemStack(material, Math.max(1, amount));
+        ItemMeta meta = item.getItemMeta();
+        meta.displayName(legacy.deserialize(settings.shardName()));
+        List<String> configuredLore = settings.shardLore();
+        if (!configuredLore.isEmpty()) {
+            meta.lore(configuredLore.stream().map(legacy::deserialize).toList());
+        }
+        meta.getPersistentDataContainer().set(key, PersistentDataType.BYTE, (byte) 1);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    public boolean isShard(ItemStack item) {
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) return false;
+        Byte value = item.getItemMeta().getPersistentDataContainer().get(key, PersistentDataType.BYTE);
+        return value != null && value == 1;
+    }
+
+    public void give(Player player, int amount) {
+        if (amount <= 0) return;
+
+        Material material = Material.matchMaterial(settings.shardMaterial());
+        int maxStack = material == null ? 64 : material.getMaxStackSize();
+        int remaining = amount;
+        while (remaining > 0) {
+            int stackAmount = Math.min(remaining, maxStack);
+            player.getInventory().addItem(create(stackAmount)).values().forEach(leftover ->
+                    player.getWorld().dropItemNaturally(player.getLocation(), leftover)
+            );
+            remaining -= stackAmount;
+        }
+    }
+
+    public boolean consumeOne(Player player) {
+        return consume(player, 1);
+    }
+
+    /** Списание транзакционное: если Осколков недостаточно, инвентарь не меняется. */
+    public boolean consume(Player player, int amount) {
+        if (amount <= 0) return true;
+        if (count(player) < amount) return false;
+
+        int remaining = amount;
+        ItemStack[] contents = player.getInventory().getContents();
+        for (int slot = 0; slot < contents.length && remaining > 0; slot++) {
+            ItemStack item = contents[slot];
+            if (!isShard(item)) continue;
+            int take = Math.min(item.getAmount(), remaining);
+            int left = item.getAmount() - take;
+            remaining -= take;
+            if (left == 0) player.getInventory().setItem(slot, null);
+            else item.setAmount(left);
+        }
+        return true;
+    }
+
+    public int count(Player player) {
+        int count = 0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (isShard(item)) count += item.getAmount();
+        }
+        return count;
+    }
+}
