@@ -3,6 +3,8 @@ package dev.smpcristalix.pvpcombat.service;
 import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import org.bukkit.Bukkit;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -174,13 +176,19 @@ public final class AbilityService {
         internalDamageVictims.add(victimId);
         try {
             if (attacker.isOnline()) {
-                victim.damage(Math.max(1000.0, victim.getMaxHealth() * 100.0), attacker);
+                victim.damage(lethalDamageAmount(victim), attacker);
             } else {
                 victim.setHealth(0.0);
             }
         } finally {
             internalDamageVictims.remove(victimId);
         }
+    }
+
+    private double lethalDamageAmount(Player victim) {
+        AttributeInstance maxHealth = victim.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+        double maxHealthValue = maxHealth == null ? 20.0 : maxHealth.getValue();
+        return Math.max(1000.0, maxHealthValue * 100.0);
     }
 
     private void cancelBleed(Player victim, BukkitRunnable task) {
