@@ -24,6 +24,8 @@ import java.util.UUID;
 
 /** Лимит тотемов, Combat-ограничения источников и защита от спама уведомлениями. */
 public final class TotemListener implements Listener {
+    private static final int DENIED_PICKUP_RETRY_TICKS = 40;
+
     private final CombatService combat;
     private final Map<UUID, Long> lastNoticeAt = new HashMap<>();
     private PvPCombatSettings settings;
@@ -45,7 +47,7 @@ public final class TotemListener implements Listener {
         if (stack.getType() != Material.TOTEM_OF_UNDYING) return;
 
         if (countTotems(player) + stack.getAmount() > settings.maxTotemsCarried()) {
-            event.setCancelled(true);
+            denyPickup(event, entityItem);
             notifyLimited(player, "Лимит тотемов: " + settings.maxTotemsCarried());
             return;
         }
@@ -59,7 +61,7 @@ public final class TotemListener implements Listener {
                 )
                 : null;
         if (!player.getUniqueId().toString().equals(trophyOwner)) {
-            event.setCancelled(true);
+            denyPickup(event, entityItem);
             notifyLimited(player, "Во время Combat нельзя пополнять тотемы из внешних источников.");
             return;
         }
@@ -137,10 +139,11 @@ public final class TotemListener implements Listener {
 
         for (int i = 0; i < overflow; i++) {
             Item dropped = player.getWorld().dropItemNaturally(
-                    player.getLocation(),
+                    player.getLocation().add(0.0, 0.25, 0.0),
                     new ItemStack(Material.TOTEM_OF_UNDYING)
             );
-            dropped.setPickupDelay(40);
+            dropped.setPickupDelay(DENIED_PICKUP_RETRY_TICKS);
+            dropped.setVelocity(player.getLocation().getDirection().multiply(0.22).setY(0.18));
         }
 
         if (overflow > 0) {
@@ -154,6 +157,13 @@ public final class TotemListener implements Listener {
             if (isTotem(item)) count += item.getAmount();
         }
         return count;
+    }
+
+    private void denyPickup(EntityPickupItemEvent event, Item item) {
+        event.setCancelled(true);
+        // Главное исправление спама со скриншота: пока предмет лежит под ногами,
+        // Paper больше не пытается вызвать pickup-event каждый тик.
+        item.setPickupDelay(DENIED_PICKUP_RETRY_TICKS);
     }
 
     private boolean isTotem(ItemStack item) {
