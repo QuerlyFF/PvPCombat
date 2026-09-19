@@ -1,7 +1,9 @@
 package dev.smpcristalix.pvpcombat.service;
 
+import dev.smpcristalix.pvpcombat.api.event.PlayerStatChangeEvent;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import dev.smpcristalix.pvpcombat.data.PlayerProfile;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -30,41 +32,73 @@ public final class DeathPenaltyService {
 
         List<Candidate> candidates = new ArrayList<>();
         addCandidate(candidates, profile.abilityLevel() > 0, "Умения", "ability",
-                () -> profile.abilityLevel(profile.abilityLevel() - 1));
+                PlayerStatChangeEvent.Stat.ABILITY,
+                profile::abilityLevel,
+                value -> profile.abilityLevel(value));
         addCandidate(candidates, profile.damageLevel() > 0, "Урон", "damage",
-                () -> profile.damageLevel(profile.damageLevel() - 1));
+                PlayerStatChangeEvent.Stat.DAMAGE,
+                profile::damageLevel,
+                value -> profile.damageLevel(value));
         addCandidate(candidates, profile.healthStep() > stats.minHealthStep(), "Здоровье", "health",
-                () -> profile.healthStep(profile.healthStep() - 1));
+                PlayerStatChangeEvent.Stat.HEALTH,
+                profile::healthStep,
+                value -> profile.healthStep(value));
         addCandidate(candidates, profile.speedLevel() > 0, "Скорость", "speed",
-                () -> profile.speedLevel(profile.speedLevel() - 1));
+                PlayerStatChangeEvent.Stat.SPEED,
+                profile::speedLevel,
+                value -> profile.speedLevel(value));
         addCandidate(candidates, profile.satietyLevel() > 0, "Сытость", "satiety",
-                () -> profile.satietyLevel(profile.satietyLevel() - 1));
+                PlayerStatChangeEvent.Stat.SATIETY,
+                profile::satietyLevel,
+                value -> profile.satietyLevel(value));
 
         int totalWeight = candidates.stream().mapToInt(Candidate::weight).sum();
         if (totalWeight <= 0) return null;
 
-        // Недоступные характеристики вообще не участвуют в totalWeight, поэтому
-        // оставшиеся веса автоматически нормализуются без отдельной математики.
         int roll = ThreadLocalRandom.current().nextInt(totalWeight);
         for (Candidate candidate : candidates) {
             roll -= candidate.weight();
             if (roll >= 0) continue;
 
-            candidate.action().run();
+            int oldValue = candidate.getter().get();
+            int newValue = oldValue - 1;
+            candidate.setter().set(newValue);
             profile.lastStatLossAt(now);
             stats.apply(player);
+            Bukkit.getPluginManager().callEvent(new PlayerStatChangeEvent(
+                    player,
+                    candidate.stat(),
+                    oldValue,
+                    newValue,
+                    PlayerStatChangeEvent.Reason.DEATH_PENALTY
+            ));
             return candidate.name();
         }
         return null;
     }
 
     private void addCandidate(List<Candidate> candidates, boolean eligible, String name,
-                              String configKey, Runnable action) {
+                              String configKey, PlayerStatChangeEvent.Stat stat,
+                              IntGetter getter, IntSetter setter) {
         if (!eligible) return;
         int weight = settings.deathWeight(configKey);
         if (weight <= 0) return;
-        candidates.add(new Candidate(name, weight, action));
+        candidates.add(new Candidate(name, weight, stat, getter, setter));
     }
 
-    private record Candidate(String name, int weight, Runnable action) {}
+    private interface IntGetter {
+        int get();
+    }
+
+    private interface IntSetter {
+        void set(int value);
+    }
+
+    private record Candidate(
+            String name,
+            int weight,
+            PlayerStatChangeEvent.Stat stat,
+            IntGetter getter,
+            IntSetter setter
+    ) {}
 }

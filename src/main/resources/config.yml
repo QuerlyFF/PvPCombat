@@ -4,48 +4,32 @@
 # ============================================================
 
 combat:
-  # Длина PvP Combat. Каждый новый PvP-удар обновляет таймер обоих игроков.
   duration-seconds: 30
-  # Антифарм Осколков для направленной пары killer -> victim.
   shard-reward-cooldown-minutes: 30
-  # Как часто один и тот же погибший игрок может терять характеристику.
   stat-loss-cooldown-minutes: 30
 
 pearls:
-  # Количество бросков до дополнительного КД PvPCombat.
   charges: 3
-  # Дополнительный КД после использования всех зарядов.
   recharge-seconds: 10
 
 movement:
-  # Можно ли начинать новый полёт на элитрах во время Combat.
   allow-elytra-in-combat: false
-  # Можно ли ускоряться фейерверком на элитрах во время Combat.
   allow-fireworks-in-combat: false
 
 totems:
-  # Максимум тотемов в инвентаре, основной и второй руке суммарно.
   max-carried: 2
-  # Разрешить пополнение тотемов во время Combat из обычных источников:
-  # сундуков, шалкеров, эндер-сундука, земли и передачи игроком.
   allow-external-sources-in-combat: false
-  # Трофейный тотем разрешён только если именно пара killer/victim
-  # находилась в PvP не меньше этого времени.
   loot-min-fight-seconds: 10
-  # Защита от спама уведомлениями при повторных попытках поднять тотем.
-  notice-cooldown-ms: 1500
 
 end-crystal:
-  # Сколько процентов от ванильного урона End Crystal оставить.
-  # 85 = уменьшить урон на 15%.
   damage-percent: 85.0
 
 stats:
   damage:
     max-percent: 25.0
     levels: 7
-    # true = бонус применяется только к урону по игрокам.
     pvp-only: true
+  # Здоровье намеренно остаётся в текущей step-модели — не менять под 7 уровней.
   health:
     min-hearts: 7.0
     base-hearts: 10.0
@@ -55,7 +39,6 @@ stats:
     max-percent: 25.0
     levels: 7
   satiety:
-    # Уменьшение именно exhaustion, а не округлённой потери hunger bar.
     max-reduction-percent: 70.0
     levels: 7
   ability:
@@ -98,11 +81,20 @@ items:
 
 scoreboard:
   enabled: true
-  # PvPCombat никогда не заменяет Scoreboard объект другого плагина.
-  # Если SIDEBAR занят чужим objective, PvPCombat оставляет его нетронутым
-  # и выводит Combat-информацию в ActionBar.
   actionbar-fallback-when-sidebar-busy: true
   title: '&c&lPvPCombat'
   combat-line: '&f⚔ PvP: &c{seconds} сек.'
   pearl-ready-line: '&f◉ Жемчуг: &b{remaining}/{max}'
   pearl-cooldown-line: '&f◉ Жемчуг: &eКД {seconds} сек.'
+
+messages:
+  # Антиспам системных ActionBar сообщений.
+  notice-cooldown-ms: 1500
+  # Сколько Combat fallback не перетирает важное предупреждение.
+  notice-priority-ms: 1800
+
+integrations:
+  grim:
+    enabled: true
+    # Короткое окно только для легального custom stun/velocity PvPCombat.
+    legal-movement-grace-ms: 750

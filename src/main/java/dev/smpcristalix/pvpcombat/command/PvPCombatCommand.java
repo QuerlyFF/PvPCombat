@@ -1,6 +1,7 @@
 package dev.smpcristalix.pvpcombat.command;
 
 import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
+import dev.smpcristalix.pvpcombat.api.event.PlayerStatChangeEvent;
 import dev.smpcristalix.pvpcombat.data.PlayerProfile;
 import dev.smpcristalix.pvpcombat.service.GuiService;
 import dev.smpcristalix.pvpcombat.service.ShardService;
@@ -56,7 +57,8 @@ public final class PvPCombatCommand implements CommandExecutor {
         PlayerProfile profile = stats.profile(target.getUniqueId());
         sender.sendMessage("§dPvPCombat §7— §f" + target.getName());
         sender.sendMessage("§7Урон: §f" + profile.damageLevel()
-                + " §7| Здоровье: §f" + String.format(Locale.ROOT, "%.1f", stats.healthHearts(profile)) + "❤");
+                + " §7| Здоровье: §f"
+                + String.format(Locale.ROOT, "%.1f", stats.healthHearts(profile)) + "❤");
         sender.sendMessage("§7Скорость: §f" + profile.speedLevel()
                 + " §7| Сытость: §f" + profile.satietyLevel()
                 + " §7| Умения: §f" + profile.abilityLevel());
@@ -108,12 +110,34 @@ public final class PvPCombatCommand implements CommandExecutor {
         }
 
         PlayerProfile profile = stats.profile(target.getUniqueId());
+        PlayerStatChangeEvent.Stat stat;
+        int oldValue;
         switch (args[2].toLowerCase(Locale.ROOT)) {
-            case "damage" -> profile.damageLevel(value);
-            case "health" -> profile.healthStep(value);
-            case "speed" -> profile.speedLevel(value);
-            case "satiety" -> profile.satietyLevel(value);
-            case "ability" -> profile.abilityLevel(value);
+            case "damage" -> {
+                stat = PlayerStatChangeEvent.Stat.DAMAGE;
+                oldValue = profile.damageLevel();
+                profile.damageLevel(value);
+            }
+            case "health" -> {
+                stat = PlayerStatChangeEvent.Stat.HEALTH;
+                oldValue = profile.healthStep();
+                profile.healthStep(value);
+            }
+            case "speed" -> {
+                stat = PlayerStatChangeEvent.Stat.SPEED;
+                oldValue = profile.speedLevel();
+                profile.speedLevel(value);
+            }
+            case "satiety" -> {
+                stat = PlayerStatChangeEvent.Stat.SATIETY;
+                oldValue = profile.satietyLevel();
+                profile.satietyLevel(value);
+            }
+            case "ability" -> {
+                stat = PlayerStatChangeEvent.Stat.ABILITY;
+                oldValue = profile.abilityLevel();
+                profile.abilityLevel(value);
+            }
             default -> {
                 sender.sendMessage("§cНеизвестная характеристика.");
                 return true;
@@ -122,14 +146,31 @@ public final class PvPCombatCommand implements CommandExecutor {
 
         stats.clamp(profile);
         stats.apply(target);
+        int newValue = switch (stat) {
+            case DAMAGE -> profile.damageLevel();
+            case HEALTH -> profile.healthStep();
+            case SPEED -> profile.speedLevel();
+            case SATIETY -> profile.satietyLevel();
+            case ABILITY -> profile.abilityLevel();
+        };
+        if (oldValue != newValue) {
+            Bukkit.getPluginManager().callEvent(new PlayerStatChangeEvent(
+                    target,
+                    stat,
+                    oldValue,
+                    newValue,
+                    PlayerStatChangeEvent.Reason.ADMIN
+            ));
+        }
         sender.sendMessage("§aХарактеристика изменена.");
         return true;
     }
 
     private boolean reload(CommandSender sender) {
         if (!requireAdmin(sender)) return true;
-        plugin.reloadPluginConfiguration();
-        sender.sendMessage("§aPvPCombat config.yml перезагружен.");
+        String error = plugin.reloadPluginConfiguration();
+        if (error == null) sender.sendMessage("§aPvPCombat config.yml перезагружен.");
+        else sender.sendMessage("§cКонфиг не применён: " + error);
         return true;
     }
 

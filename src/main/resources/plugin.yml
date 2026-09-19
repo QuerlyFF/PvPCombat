@@ -3,6 +3,7 @@ version: 1.0.0
 main: dev.smpcristalix.pvpcombat.PvPCombatPlugin
 api-version: '1.21.1'
 author: QuerlyFF
+softdepend: [GrimAC]
 commands:
   pvpcombat:
     description: Main PvPCombat command

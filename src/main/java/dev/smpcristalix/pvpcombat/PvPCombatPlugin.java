@@ -3,8 +3,10 @@ package dev.smpcristalix.pvpcombat;
 import dev.smpcristalix.pvpcombat.api.PvPCombatApi;
 import dev.smpcristalix.pvpcombat.api.PvPCombatApiImpl;
 import dev.smpcristalix.pvpcombat.command.PvPCombatCommand;
+import dev.smpcristalix.pvpcombat.config.ConfigValidator;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import dev.smpcristalix.pvpcombat.data.YamlDataStore;
+import dev.smpcristalix.pvpcombat.integration.GrimBridge;
 import dev.smpcristalix.pvpcombat.listener.ArmorDurabilityListener;
 import dev.smpcristalix.pvpcombat.listener.CombatListener;
 import dev.smpcristalix.pvpcombat.listener.DeathListener;
@@ -18,6 +20,7 @@ import dev.smpcristalix.pvpcombat.service.AbilityService;
 import dev.smpcristalix.pvpcombat.service.CombatService;
 import dev.smpcristalix.pvpcombat.service.DeathPenaltyService;
 import dev.smpcristalix.pvpcombat.service.GuiService;
+import dev.smpcristalix.pvpcombat.service.NoticeService;
 import dev.smpcristalix.pvpcombat.service.PearlService;
 import dev.smpcristalix.pvpcombat.service.RewardService;
 import dev.smpcristalix.pvpcombat.service.ScoreboardService;
@@ -29,12 +32,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
-/**
- * Composition root PvPCombat.
- *
- * <p>Главный класс только связывает зависимости и жизненный цикл. Игровая логика
- * разнесена по маленьким сервисам/listener'ам, чтобы код было проще тестировать и менять.</p>
- */
+/** Composition root PvPCombat: связывает сервисы, listener'ы и жизненный цикл. */
 public final class PvPCombatPlugin extends JavaPlugin {
     public static NamespacedKey PROJECTILE_WEAPON_KEY;
     public static NamespacedKey TROPHY_TOTEM_KEY;
@@ -51,6 +49,7 @@ public final class PvPCombatPlugin extends JavaPlugin {
     private UpgradeService upgrades;
     private GuiService gui;
     private ScoreboardService scoreboard;
+    private NoticeService notices;
 
     private CombatListener combatListener;
     private MovementListener movementListener;
@@ -60,6 +59,13 @@ public final class PvPCombatPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        try {
+            ConfigValidator.validate(getConfig());
+        } catch (IllegalArgumentException ex) {
+            getLogger().severe(ex.getMessage());
+            Bukkit.getPluginManager().disablePlugin(this);
+            return;
+        }
 
         PROJECTILE_WEAPON_KEY = new NamespacedKey(this, "projectile_weapon");
         TROPHY_TOTEM_KEY = new NamespacedKey(this, "trophy_totem_owner");
@@ -72,16 +78,18 @@ public final class PvPCombatPlugin extends JavaPlugin {
         shards = new ShardService(this, settings);
         combat = new CombatService(settings);
         pearls = new PearlService(settings);
-        abilities = new AbilityService(this, stats, settings);
+        notices = new NoticeService(settings);
+        abilities = new AbilityService(this, stats, combat, settings);
         penalties = new DeathPenaltyService(stats, settings);
         rewards = new RewardService(store, shards, settings);
         upgrades = new UpgradeService(stats, shards, settings);
         gui = new GuiService(stats, shards);
-        scoreboard = new ScoreboardService(combat, pearls, settings);
+        scoreboard = new ScoreboardService(combat, pearls, notices, settings);
 
         registerListeners();
         registerCommand();
         registerApi();
+        new GrimBridge(this, abilities).registerIfAvailable();
         Bukkit.getOnlinePlayers().forEach(stats::apply);
         startSchedulers();
 
@@ -89,9 +97,9 @@ public final class PvPCombatPlugin extends JavaPlugin {
     }
 
     private void registerListeners() {
-        combatListener = new CombatListener(combat, pearls, stats, abilities, settings);
-        movementListener = new MovementListener(combat, abilities, settings);
-        totemListener = new TotemListener(combat, settings);
+        combatListener = new CombatListener(combat, pearls, stats, abilities, notices, settings);
+        movementListener = new MovementListener(combat, abilities, notices, settings);
+        totemListener = new TotemListener(combat, notices, settings);
         deathListener = new DeathListener(combat, pearls, penalties, rewards, settings);
 
         var pluginManager = Bukkit.getPluginManager();
@@ -103,7 +111,15 @@ public final class PvPCombatPlugin extends JavaPlugin {
         pluginManager.registerEvents(totemListener, this);
         pluginManager.registerEvents(new MaceListener(), this);
         pluginManager.registerEvents(deathListener, this);
-        pluginManager.registerEvents(new PlayerLifecycleListener(stats, combat, pearls, scoreboard), this);
+        pluginManager.registerEvents(new PlayerLifecycleListener(
+                stats,
+                combat,
+                pearls,
+                scoreboard,
+                shards,
+                store,
+                notices
+        ), this);
     }
 
     private void registerCommand() {
@@ -121,7 +137,6 @@ public final class PvPCombatPlugin extends JavaPlugin {
     }
 
     private void startSchedulers() {
-        // Два раза в секунду обновляем только изменившиеся строки Combat UI.
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             combat.clearExpired();
             for (var player : Bukkit.getOnlinePlayers()) {
@@ -130,16 +145,24 @@ public final class PvPCombatPlugin extends JavaPlugin {
             }
         }, 10L, 10L);
 
-        // Страхуем лимит тотемов даже от прямой выдачи через другие плагины/команды.
         Bukkit.getScheduler().runTaskTimer(this, () ->
                 Bukkit.getOnlinePlayers().forEach(totemListener::enforceLimit), 20L, 20L);
 
-        // Периодический save защищает прогресс/cooldown даже при аварийном shutdown.
-        Bukkit.getScheduler().runTaskTimer(this, store::save, 1200L, 1200L);
+        // Snapshot делается на main thread, физическая запись YAML — async и атомарно.
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            rewards.cleanupExpired();
+            store.saveAsync();
+        }, 1200L, 1200L);
     }
 
-    public void reloadPluginConfiguration() {
+    public String reloadPluginConfiguration() {
         reloadConfig();
+        try {
+            ConfigValidator.validate(getConfig());
+        } catch (IllegalArgumentException ex) {
+            return ex.getMessage();
+        }
+
         settings = new PvPCombatSettings(getConfig());
         stats.reload(settings);
         shards.reload(settings);
@@ -149,17 +172,26 @@ public final class PvPCombatPlugin extends JavaPlugin {
         penalties.reload(settings);
         rewards.reload(settings);
         upgrades.reload(settings);
+        notices.reload(settings);
         scoreboard.reload(settings);
         combatListener.reload(settings);
         movementListener.reload(settings);
         totemListener.reload(settings);
         deathListener.reload(settings);
         Bukkit.getOnlinePlayers().forEach(stats::apply);
+        return null;
+    }
+
+    public PvPCombatSettings getSettings() {
+        return settings;
     }
 
     @Override
     public void onDisable() {
-        if (store != null) store.save();
+        if (store != null) {
+            if (rewards != null) rewards.cleanupExpired();
+            store.save();
+        }
         Bukkit.getServicesManager().unregisterAll(this);
     }
 }

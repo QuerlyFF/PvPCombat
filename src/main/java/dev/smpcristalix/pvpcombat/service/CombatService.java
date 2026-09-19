@@ -1,19 +1,16 @@
 package dev.smpcristalix.pvpcombat.service;
 
+import dev.smpcristalix.pvpcombat.api.event.CombatStateChangeEvent;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Хранит эфемерное состояние PvP Combat.
- *
- * <p>Кроме персонального таймера отдельно хранится состояние каждой пары игроков.
- * Это важно для правила трофейного тотема: длительность боя считается именно для
- * killer/victim, а не для всего Combat игрока с любыми противниками.</p>
- */
+/** Хранит Combat-state игрока, длительность конкретных PvP-пар и forced killer. */
 public final class CombatService {
     private final Map<UUID, CombatState> states = new HashMap<>();
     private final Map<PlayerPair, PairState> pairStates = new HashMap<>();
@@ -31,17 +28,26 @@ public final class CombatService {
     public void tag(Player first, Player second) {
         long now = System.currentTimeMillis();
         long expiry = now + settings.combatDurationSeconds() * 1000L;
-        states.compute(first.getUniqueId(), (id, old) -> updatePlayerState(old, second.getUniqueId(), now, expiry));
-        states.compute(second.getUniqueId(), (id, old) -> updatePlayerState(old, first.getUniqueId(), now, expiry));
+        boolean firstEntered = putPlayerState(first, second.getUniqueId(), now, expiry);
+        boolean secondEntered = putPlayerState(second, first.getUniqueId(), now, expiry);
+
         PlayerPair pair = PlayerPair.of(first.getUniqueId(), second.getUniqueId());
         pairStates.compute(pair, (ignored, old) -> updatePairState(old, now, expiry));
+
+        if (firstEntered) fireStateChange(first, second.getUniqueId(), true);
+        if (secondEntered) fireStateChange(second, first.getUniqueId(), true);
     }
 
-    private CombatState updatePlayerState(CombatState old, UUID opponent, long now, long expiry) {
-        if (old == null || old.expiresAt <= now) return new CombatState(opponent, now, expiry);
+    private boolean putPlayerState(Player player, UUID opponent, long now, long expiry) {
+        UUID id = player.getUniqueId();
+        CombatState old = states.get(id);
+        if (old == null || old.expiresAt <= now) {
+            states.put(id, new CombatState(opponent, now, expiry));
+            return true;
+        }
         old.opponent = opponent;
         old.expiresAt = expiry;
-        return old;
+        return false;
     }
 
     private PairState updatePairState(PairState old, long now, long expiry) {
@@ -60,7 +66,11 @@ public final class CombatService {
     }
 
     public long fightDurationMillis(Player first, Player second) {
-        PairState state = pairStates.get(PlayerPair.of(first.getUniqueId(), second.getUniqueId()));
+        return fightDurationMillis(first.getUniqueId(), second.getUniqueId());
+    }
+
+    public long fightDurationMillis(UUID first, UUID second) {
+        PairState state = pairStates.get(PlayerPair.of(first, second));
         if (state == null || state.expiresAt <= System.currentTimeMillis()) return 0L;
         return Math.max(0L, System.currentTimeMillis() - state.startedAt);
     }
@@ -73,7 +83,12 @@ public final class CombatService {
 
     public void markCombatLogout(Player player) {
         UUID opponent = opponent(player);
-        if (opponent != null) forcedKillers.put(player.getUniqueId(), opponent);
+        if (opponent != null) forceKiller(player.getUniqueId(), opponent);
+    }
+
+    public void forceKiller(UUID victimId, UUID killerId) {
+        if (victimId == null || killerId == null || victimId.equals(killerId)) return;
+        forcedKillers.put(victimId, killerId);
     }
 
     public UUID consumeForcedKiller(Player victim) {
@@ -82,15 +97,29 @@ public final class CombatService {
 
     public void clear(Player player) {
         UUID id = player.getUniqueId();
-        states.remove(id);
+        CombatState old = states.remove(id);
         forcedKillers.remove(id);
         pairStates.keySet().removeIf(pair -> pair.contains(id));
+        if (old != null) fireStateChange(player, old.opponent, false);
     }
 
     public void clearExpired() {
         long now = System.currentTimeMillis();
-        states.entrySet().removeIf(entry -> entry.getValue().expiresAt <= now);
+        Iterator<Map.Entry<UUID, CombatState>> iterator = states.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<UUID, CombatState> entry = iterator.next();
+            CombatState state = entry.getValue();
+            if (state.expiresAt > now) continue;
+
+            iterator.remove();
+            Player online = Bukkit.getPlayer(entry.getKey());
+            if (online != null) fireStateChange(online, state.opponent, false);
+        }
         pairStates.entrySet().removeIf(entry -> entry.getValue().expiresAt <= now);
+    }
+
+    private void fireStateChange(Player player, UUID opponentId, boolean inCombat) {
+        Bukkit.getPluginManager().callEvent(new CombatStateChangeEvent(player, opponentId, inCombat));
     }
 
     private static final class CombatState {

@@ -7,7 +7,9 @@ import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 import java.util.Locale;
@@ -25,7 +27,9 @@ public final class GuiService {
     }
 
     public void open(Player player) {
-        Inventory inventory = Bukkit.createInventory(null, 27, Component.text(TITLE));
+        UpgradeMenuHolder holder = new UpgradeMenuHolder();
+        Inventory inventory = Bukkit.createInventory(holder, 27, Component.text(TITLE));
+        holder.inventory = inventory;
         PlayerProfile profile = stats.profile(player.getUniqueId());
 
         inventory.setItem(10, statItem(Material.IRON_SWORD, "Урон",
@@ -42,6 +46,10 @@ public final class GuiService {
                 "В инвентаре: " + shards.count(player)));
 
         player.openInventory(inventory);
+    }
+
+    public boolean isUpgradeMenu(Inventory inventory) {
+        return inventory.getHolder() instanceof UpgradeMenuHolder;
     }
 
     private ItemStack statItem(Material material, String name, String value) {
@@ -62,5 +70,17 @@ public final class GuiService {
         meta.lore(List.of(Component.text(value, NamedTextColor.GRAY)));
         item.setItemMeta(meta);
         return item;
+    }
+
+    private static final class UpgradeMenuHolder implements InventoryHolder {
+        private Inventory inventory;
+
+        @Override
+        public @NotNull Inventory getInventory() {
+            if (inventory == null) {
+                throw new IllegalStateException("Upgrade inventory ещё не создан");
+            }
+            return inventory;
+        }
     }
 }

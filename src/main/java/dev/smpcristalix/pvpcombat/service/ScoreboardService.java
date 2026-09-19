@@ -14,25 +14,23 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Combat sidebar с безопасной интеграцией в scoreboard других плагинов.
- *
- * <p>PvPCombat никогда не вызывает Player#setScoreboard и не создаёт новый board
- * каждые полсекунды. Он работает на уже установленном scoreboard игрока. Если
- * SIDEBAR занят чужим objective, он не перехватывается: Combat-информация временно
- * показывается в ActionBar.</p>
- */
+/** Combat sidebar с безопасным fallback, если SIDEBAR уже занят другим плагином. */
 public final class ScoreboardService {
     private static final String OBJECTIVE_NAME = "pvpcombat_core";
+    private static final String COMBAT_SUFFIX = "§0§r";
+    private static final String PEARL_SUFFIX = "§1§r";
 
     private final CombatService combat;
     private final PearlService pearls;
+    private final NoticeService notices;
     private final Map<UUID, PlayerBoardState> states = new HashMap<>();
     private PvPCombatSettings settings;
 
-    public ScoreboardService(CombatService combat, PearlService pearls, PvPCombatSettings settings) {
+    public ScoreboardService(CombatService combat, PearlService pearls, NoticeService notices,
+                             PvPCombatSettings settings) {
         this.combat = combat;
         this.pearls = pearls;
+        this.notices = notices;
         this.settings = settings;
     }
 
@@ -49,12 +47,7 @@ public final class ScoreboardService {
 
         Scoreboard currentBoard = player.getScoreboard();
         if (isSharedBySeveralPlayers(player, currentBoard)) {
-            PlayerBoardState existing = states.get(player.getUniqueId());
-            if (existing != null && existing.board == currentBoard
-                    && existing.board.getObjective(DisplaySlot.SIDEBAR) == existing.objective) {
-                existing.objective.setDisplaySlot(null);
-                clearLines(existing);
-            }
+            releaseOurSidebar(player, currentBoard);
             showFallback(player);
             return;
         }
@@ -67,8 +60,8 @@ public final class ScoreboardService {
         }
 
         if (currentSidebar != state.objective) state.objective.setDisplaySlot(DisplaySlot.SIDEBAR);
-        updateLine(state, combatLine(player), 2, true);
-        updateLine(state, pearlLine(player), 1, false);
+        updateLine(state, combatLine(player) + COMBAT_SUFFIX, 2, true);
+        updateLine(state, pearlLine(player) + PEARL_SUFFIX, 1, false);
     }
 
     public void clear(Player player) {
@@ -94,16 +87,29 @@ public final class ScoreboardService {
         clearLines(state);
     }
 
+    private void releaseOurSidebar(Player player, Scoreboard board) {
+        PlayerBoardState existing = states.get(player.getUniqueId());
+        if (existing == null || existing.board != board) return;
+        if (board.getObjective(DisplaySlot.SIDEBAR) == existing.objective) {
+            existing.objective.setDisplaySlot(null);
+        }
+        clearLines(existing);
+    }
+
     private void showFallback(Player player) {
-        if (!settings.scoreboardActionBarFallback()) return;
+        if (!settings.scoreboardActionBarFallback() || notices.hasPriorityNotice(player)) return;
         player.sendActionBar(Component.text(
-                ChatColor.stripColor(combatLine(player)) + " | " + ChatColor.stripColor(pearlLine(player))
+                ChatColor.stripColor(combatLine(player))
+                        + " | "
+                        + ChatColor.stripColor(pearlLine(player))
         ));
     }
 
     private boolean isSharedBySeveralPlayers(Player player, Scoreboard board) {
         for (Player other : Bukkit.getOnlinePlayers()) {
-            if (!other.getUniqueId().equals(player.getUniqueId()) && other.getScoreboard() == board) return true;
+            if (!other.getUniqueId().equals(player.getUniqueId()) && other.getScoreboard() == board) {
+                return true;
+            }
         }
         return false;
     }
@@ -114,13 +120,19 @@ public final class ScoreboardService {
         if (old != null && old.board == board) return old;
 
         if (old != null) {
-            if (old.board.getObjective(DisplaySlot.SIDEBAR) == old.objective) old.objective.setDisplaySlot(null);
+            if (old.board.getObjective(DisplaySlot.SIDEBAR) == old.objective) {
+                old.objective.setDisplaySlot(null);
+            }
             clearLines(old);
         }
 
         Objective objective = board.getObjective(OBJECTIVE_NAME);
         if (objective == null) {
-            objective = board.registerNewObjective(OBJECTIVE_NAME, Criteria.DUMMY, color(settings.scoreboardTitle()));
+            objective = board.registerNewObjective(
+                    OBJECTIVE_NAME,
+                    Criteria.DUMMY,
+                    color(settings.scoreboardTitle())
+            );
         }
 
         PlayerBoardState created = new PlayerBoardState(board, objective);

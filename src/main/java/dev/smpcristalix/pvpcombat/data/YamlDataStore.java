@@ -1,22 +1,30 @@
 package dev.smpcristalix.pvpcombat.data;
 
 import dev.smpcristalix.pvpcombat.service.RewardService;
+import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/** UUID-хранилище прогресса и антифарм-cooldown'ов. */
+/** UUID-хранилище прогресса, anti-farm cooldown и отложенных наград. */
 public final class YamlDataStore {
     private final JavaPlugin plugin;
     private final File file;
+    private final Object ioLock = new Object();
+    private final AtomicBoolean asyncSaveRunning = new AtomicBoolean(false);
     private final Map<UUID, PlayerProfile> profiles = new HashMap<>();
     private final Map<String, Long> rewardCooldowns = new HashMap<>();
+    private final Map<UUID, Integer> pendingShards = new HashMap<>();
 
     public YamlDataStore(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -26,9 +34,11 @@ public final class YamlDataStore {
     public void load() {
         profiles.clear();
         rewardCooldowns.clear();
+        pendingShards.clear();
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         loadProfiles(yaml);
         loadRewardCooldowns(yaml);
+        loadPendingShards(yaml);
     }
 
     private void loadProfiles(YamlConfiguration yaml) {
@@ -64,8 +74,6 @@ public final class YamlDataStore {
                 continue;
             }
 
-            // Миграция с первой версии: killerUUID.victimUUID превращался YAML'ом
-            // в два вложенных уровня и раньше после рестарта не загружался.
             ConfigurationSection killerSection = rewards.getConfigurationSection(key);
             if (killerSection == null) continue;
             for (String victim : killerSection.getKeys(false)) {
@@ -73,6 +81,20 @@ public final class YamlDataStore {
                         RewardService.migrationKey(key, victim),
                         killerSection.getLong(victim)
                 );
+            }
+        }
+    }
+
+    private void loadPendingShards(YamlConfiguration yaml) {
+        ConfigurationSection section = yaml.getConfigurationSection("pending-shards");
+        if (section == null) return;
+        for (String key : section.getKeys(false)) {
+            try {
+                UUID uuid = UUID.fromString(key);
+                int amount = Math.max(0, section.getInt(key));
+                if (amount > 0) pendingShards.put(uuid, amount);
+            } catch (IllegalArgumentException ignored) {
+                plugin.getLogger().warning("Пропущен повреждённый pending-shards UUID: " + key);
             }
         }
     }
@@ -89,9 +111,62 @@ public final class YamlDataStore {
         rewardCooldowns.put(key, value);
     }
 
+    public void purgeRewardCooldownsBefore(long cutoff) {
+        rewardCooldowns.entrySet().removeIf(entry -> entry.getValue() < cutoff);
+    }
+
+    public void addPendingShards(UUID playerId, int amount) {
+        if (amount <= 0) return;
+        pendingShards.merge(playerId, amount, Integer::sum);
+    }
+
+    public int takePendingShards(UUID playerId) {
+        return pendingShards.remove(playerId) == null
+                ? 0
+                : Math.max(0, pendingShards.getOrDefault(playerId, 0));
+    }
+
+    public int removePendingShards(UUID playerId) {
+        Integer amount = pendingShards.remove(playerId);
+        return amount == null ? 0 : Math.max(0, amount);
+    }
+
+    public void saveAsync() {
+        SaveSnapshot snapshot = snapshot();
+        if (!asyncSaveRunning.compareAndSet(false, true)) return;
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                writeSnapshot(snapshot);
+            } finally {
+                asyncSaveRunning.set(false);
+            }
+        });
+    }
+
     public void save() {
+        writeSnapshot(snapshot());
+    }
+
+    private SaveSnapshot snapshot() {
+        Map<UUID, ProfileSnapshot> profileCopy = new HashMap<>();
+        profiles.forEach((uuid, profile) -> profileCopy.put(uuid, new ProfileSnapshot(
+                profile.damageLevel(),
+                profile.healthStep(),
+                profile.speedLevel(),
+                profile.satietyLevel(),
+                profile.abilityLevel(),
+                profile.lastStatLossAt()
+        )));
+        return new SaveSnapshot(
+                profileCopy,
+                new HashMap<>(rewardCooldowns),
+                new HashMap<>(pendingShards)
+        );
+    }
+
+    private void writeSnapshot(SaveSnapshot snapshot) {
         YamlConfiguration yaml = new YamlConfiguration();
-        profiles.forEach((uuid, profile) -> {
+        snapshot.profiles().forEach((uuid, profile) -> {
             String base = "players." + uuid + ".";
             yaml.set(base + "damage", profile.damageLevel());
             yaml.set(base + "health-step", profile.healthStep());
@@ -100,15 +175,50 @@ public final class YamlDataStore {
             yaml.set(base + "ability", profile.abilityLevel());
             yaml.set(base + "last-stat-loss", profile.lastStatLossAt());
         });
+        snapshot.rewardCooldowns().forEach((key, value) ->
+                yaml.set("reward-cooldowns." + key, value)
+        );
+        snapshot.pendingShards().forEach((uuid, amount) ->
+                yaml.set("pending-shards." + uuid, amount)
+        );
 
-        // Новый separator не содержит '.', поэтому Bukkit YAML не разбивает ключ пары на секции.
-        rewardCooldowns.forEach((key, value) -> yaml.set("reward-cooldowns." + key, value));
-
-        try {
-            if (!plugin.getDataFolder().exists()) plugin.getDataFolder().mkdirs();
-            yaml.save(file);
-        } catch (IOException ex) {
-            plugin.getLogger().severe("Не удалось сохранить data.yml: " + ex.getMessage());
+        synchronized (ioLock) {
+            try {
+                if (!plugin.getDataFolder().exists()) plugin.getDataFolder().mkdirs();
+                File temp = new File(plugin.getDataFolder(), "data.yml.tmp");
+                yaml.save(temp);
+                moveAtomically(temp, file);
+            } catch (IOException ex) {
+                plugin.getLogger().severe("Не удалось сохранить data.yml: " + ex.getMessage());
+            }
         }
     }
+
+    private void moveAtomically(File source, File target) throws IOException {
+        try {
+            Files.move(
+                    source.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+            );
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private record ProfileSnapshot(
+            int damageLevel,
+            int healthStep,
+            int speedLevel,
+            int satietyLevel,
+            int abilityLevel,
+            long lastStatLossAt
+    ) {}
+
+    private record SaveSnapshot(
+            Map<UUID, ProfileSnapshot> profiles,
+            Map<String, Long> rewardCooldowns,
+            Map<UUID, Integer> pendingShards
+    ) {}
 }

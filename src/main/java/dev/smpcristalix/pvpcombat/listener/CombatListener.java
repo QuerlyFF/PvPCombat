@@ -4,6 +4,7 @@ import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import dev.smpcristalix.pvpcombat.service.AbilityService;
 import dev.smpcristalix.pvpcombat.service.CombatService;
+import dev.smpcristalix.pvpcombat.service.NoticeService;
 import dev.smpcristalix.pvpcombat.service.PearlService;
 import dev.smpcristalix.pvpcombat.service.StatsService;
 import org.bukkit.Material;
@@ -19,12 +20,7 @@ import org.bukkit.event.entity.EntityExhaustionEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.persistence.PersistentDataType;
 
-/**
- * Главная точка обработки боевых событий.
- *
- * <p>Здесь только определяется контекст попадания. Сами способности, Combat-state,
- * характеристики и жемчуг остаются в отдельных сервисах.</p>
- */
+/** Главная точка обработки PvP-попаданий и расхода жемчуга. */
 public final class CombatListener implements Listener {
     private static final byte PROJECTILE_BOW = 1;
     private static final byte PROJECTILE_CROSSBOW = 2;
@@ -33,14 +29,16 @@ public final class CombatListener implements Listener {
     private final PearlService pearls;
     private final StatsService stats;
     private final AbilityService abilities;
+    private final NoticeService notices;
     private PvPCombatSettings settings;
 
     public CombatListener(CombatService combat, PearlService pearls, StatsService stats,
-                          AbilityService abilities, PvPCombatSettings settings) {
+                          AbilityService abilities, NoticeService notices, PvPCombatSettings settings) {
         this.combat = combat;
         this.pearls = pearls;
         this.stats = stats;
         this.abilities = abilities;
+        this.notices = notices;
         this.settings = settings;
     }
 
@@ -48,8 +46,9 @@ public final class CombatListener implements Listener {
         this.settings = settings;
     }
 
+    /** На HIGH меняем только численное значение урона. */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onDamage(EntityDamageByEntityEvent event) {
+    public void onDamageModify(EntityDamageByEntityEvent event) {
         if (event.getEntity() instanceof Player && event.getDamager() instanceof EnderCrystal) {
             event.setDamage(event.getDamage() * settings.endCrystalDamageMultiplier());
             return;
@@ -62,30 +61,47 @@ public final class CombatListener implements Listener {
             if (!settings.damagePvpOnly()) applyDamageBonus(event, attacker);
             return;
         }
+        if (abilities.isInternalDamage(victim)) return;
+        applyDamageBonus(event, attacker);
+    }
+
+    /**
+     * На MONITOR уже известно, что попадание не отменено и действительно нанесло урон.
+     * Только после этого создаём Combat-state и запускаем способность.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamageResolved(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player victim)) return;
+        if (event.getFinalDamage() <= 0.0 || abilities.isInternalDamage(victim)) return;
+
+        Player attacker = resolveAttacker(event.getDamager());
+        if (attacker == null || attacker.equals(victim)) return;
 
         boolean attackerWasInCombat = combat.inCombat(attacker);
         boolean victimWasInCombat = combat.inCombat(victim);
         combat.tag(attacker, victim);
 
-        // Новый отдельный Combat всегда начинается с полного набора зарядов.
         if (!attackerWasInCombat) pearls.reset(attacker);
         if (!victimWasInCombat) pearls.reset(victim);
-
-        applyDamageBonus(event, attacker);
         triggerWeaponAbility(event, attacker, victim);
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onProjectileLaunch(ProjectileLaunchEvent event) {
-        if (!(event.getEntity().getShooter() instanceof Player player)) return;
-        if (event.getEntity().getType() != org.bukkit.entity.EntityType.ENDER_PEARL) return;
-        if (!combat.inCombat(player)) return;
+    /** Запрещаем только бросок, который превысил наш дополнительный Combat-лимит. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onProjectileLaunchGate(ProjectileLaunchEvent event) {
+        Player player = pearlShooter(event);
+        if (player == null || !combat.inCombat(player)) return;
+        if (pearls.canThrow(player)) return;
 
-        if (!pearls.canThrow(player)) {
-            event.setCancelled(true);
-            player.sendMessage("§cЖемчуг на дополнительном КД PvPCombat.");
-            return;
-        }
+        event.setCancelled(true);
+        notices.warn(player, "pearl-cooldown", "Жемчуг на дополнительном КД PvPCombat.");
+    }
+
+    /** Заряд тратится только если после всех listener'ов projectile остался разрешён. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onProjectileLaunchCommitted(ProjectileLaunchEvent event) {
+        Player player = pearlShooter(event);
+        if (player == null || !combat.inCombat(player)) return;
         pearls.recordThrow(player);
     }
 
@@ -94,9 +110,12 @@ public final class CombatListener implements Listener {
         if (!(event.getEntity() instanceof Player player)) return;
         double reduction = stats.satietyReductionPercent(stats.profile(player.getUniqueId())) / 100.0;
         if (reduction <= 0.0) return;
-
-        // Снижаем именно exhaustion: 70% остаётся честными 70% без округления hunger bar.
         event.setExhaustion((float) Math.max(0.0, event.getExhaustion() * (1.0 - reduction)));
+    }
+
+    private Player pearlShooter(ProjectileLaunchEvent event) {
+        if (event.getEntity().getType() != org.bukkit.entity.EntityType.ENDER_PEARL) return null;
+        return event.getEntity().getShooter() instanceof Player player ? player : null;
     }
 
     private void applyDamageBonus(EntityDamageByEntityEvent event, Player attacker) {
@@ -123,7 +142,9 @@ public final class CombatListener implements Listener {
 
     private Player resolveAttacker(Entity damager) {
         if (damager instanceof Player player) return player;
-        if (damager instanceof Projectile projectile && projectile.getShooter() instanceof Player player) return player;
+        if (damager instanceof Projectile projectile && projectile.getShooter() instanceof Player player) {
+            return player;
+        }
         return null;
     }
 }

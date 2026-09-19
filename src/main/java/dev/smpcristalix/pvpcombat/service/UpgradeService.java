@@ -1,7 +1,9 @@
 package dev.smpcristalix.pvpcombat.service;
 
+import dev.smpcristalix.pvpcombat.api.event.PlayerStatChangeEvent;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import dev.smpcristalix.pvpcombat.data.PlayerProfile;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 /** Правила прокачки характеристик, полностью независимые от GUI. */
@@ -31,15 +33,17 @@ public final class UpgradeService {
             return new Result(false, "У тебя нет Осколка.");
         }
 
-        switch (stat) {
-            case DAMAGE -> profile.damageLevel(profile.damageLevel() + 1);
-            case HEALTH -> profile.healthStep(profile.healthStep() + 1);
-            case SPEED -> profile.speedLevel(profile.speedLevel() + 1);
-            case SATIETY -> profile.satietyLevel(profile.satietyLevel() + 1);
-            case ABILITY -> profile.abilityLevel(profile.abilityLevel() + 1);
-        }
-
+        int oldValue = value(profile, stat);
+        int newValue = oldValue + 1;
+        setValue(profile, stat, newValue);
         stats.apply(player);
+        Bukkit.getPluginManager().callEvent(new PlayerStatChangeEvent(
+                player,
+                apiStat(stat),
+                oldValue,
+                newValue,
+                PlayerStatChangeEvent.Reason.UPGRADE
+        ));
         return new Result(true, "Характеристика улучшена.");
     }
 
@@ -51,6 +55,30 @@ public final class UpgradeService {
             case SATIETY -> profile.satietyLevel() < settings.satietyLevels();
             case ABILITY -> profile.abilityLevel() < settings.maxAbilityLevel();
         };
+    }
+
+    private int value(PlayerProfile profile, Stat stat) {
+        return switch (stat) {
+            case DAMAGE -> profile.damageLevel();
+            case HEALTH -> profile.healthStep();
+            case SPEED -> profile.speedLevel();
+            case SATIETY -> profile.satietyLevel();
+            case ABILITY -> profile.abilityLevel();
+        };
+    }
+
+    private void setValue(PlayerProfile profile, Stat stat, int value) {
+        switch (stat) {
+            case DAMAGE -> profile.damageLevel(value);
+            case HEALTH -> profile.healthStep(value);
+            case SPEED -> profile.speedLevel(value);
+            case SATIETY -> profile.satietyLevel(value);
+            case ABILITY -> profile.abilityLevel(value);
+        }
+    }
+
+    private PlayerStatChangeEvent.Stat apiStat(Stat stat) {
+        return PlayerStatChangeEvent.Stat.valueOf(stat.name());
     }
 
     public enum Stat {

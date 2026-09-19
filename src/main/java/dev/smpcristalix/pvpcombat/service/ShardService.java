@@ -30,8 +30,9 @@ public final class ShardService {
     public ItemStack create(int amount) {
         Material material = Material.matchMaterial(settings.shardMaterial());
         if (material == null) material = Material.AMETHYST_SHARD;
+        int safeAmount = Math.max(1, Math.min(amount, material.getMaxStackSize()));
 
-        ItemStack item = new ItemStack(material, Math.max(1, amount));
+        ItemStack item = new ItemStack(material, safeAmount);
         ItemMeta meta = item.getItemMeta();
         meta.displayName(legacy.deserialize(settings.shardName()));
         List<String> configuredLore = settings.shardLore();
@@ -68,7 +69,6 @@ public final class ShardService {
         return consume(player, 1);
     }
 
-    /** Списание транзакционное: если Осколков недостаточно, инвентарь не меняется. */
     public boolean consume(Player player, int amount) {
         if (amount <= 0) return true;
         if (count(player) < amount) return false;

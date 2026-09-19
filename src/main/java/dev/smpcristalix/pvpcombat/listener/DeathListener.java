@@ -18,7 +18,7 @@ import org.bukkit.persistence.PersistentDataType;
 
 import java.util.UUID;
 
-/** Смерть, штраф прогресса, PvP-награда и трофейные тотемы обрабатываются единым pipeline. */
+/** Смерть, штраф прогресса, награда и трофейные тотемы обрабатываются единым pipeline. */
 public final class DeathListener implements Listener {
     private final CombatService combat;
     private final PearlService pearls;
@@ -47,25 +47,25 @@ public final class DeathListener implements Listener {
         String lost = penalties.apply(victim);
         if (lost != null) victim.sendMessage("§cПосле смерти потеряна ступень: §f" + lost);
 
-        Player killer = resolveKiller(victim);
-        if (killer != null && !killer.equals(victim)) {
-            if (rewards.reward(killer, victim)) {
-                killer.sendMessage("§dТы получил Осколок за PvP-убийство.");
+        UUID killerId = resolveKillerId(victim);
+        if (killerId != null && !killerId.equals(victim.getUniqueId())) {
+            boolean rewarded = rewards.reward(killerId, victim);
+            Player onlineKiller = Bukkit.getPlayer(killerId);
+            if (rewarded && onlineKiller != null) {
+                onlineKiller.sendMessage("§dТы получил Осколок за PvP-убийство.");
             }
-            markEligibleTotems(event, killer, victim);
+            markEligibleTotems(event, killerId, victim.getUniqueId());
         }
 
         combat.clear(victim);
         pearls.reset(victim);
     }
 
-    private Player resolveKiller(Player victim) {
+    private UUID resolveKillerId(Player victim) {
         UUID forcedKiller = combat.consumeForcedKiller(victim);
-        if (forcedKiller != null) {
-            Player online = Bukkit.getPlayer(forcedKiller);
-            if (online != null) return online;
-        }
-        return victim.getKiller();
+        if (forcedKiller != null) return forcedKiller;
+        Player vanillaKiller = victim.getKiller();
+        return vanillaKiller == null ? null : vanillaKiller.getUniqueId();
     }
 
     private void forceFullDrop(PlayerDeathEvent event) {
@@ -78,9 +78,9 @@ public final class DeathListener implements Listener {
         event.getEntity().getInventory().clear();
     }
 
-    private void markEligibleTotems(PlayerDeathEvent event, Player killer, Player victim) {
+    private void markEligibleTotems(PlayerDeathEvent event, UUID killerId, UUID victimId) {
         long minimumFightMillis = settings.totemLootMinFightSeconds() * 1000L;
-        if (combat.fightDurationMillis(killer, victim) < minimumFightMillis) return;
+        if (combat.fightDurationMillis(killerId, victimId) < minimumFightMillis) return;
 
         for (ItemStack drop : event.getDrops()) {
             if (drop.getType() != Material.TOTEM_OF_UNDYING) continue;
@@ -88,7 +88,7 @@ public final class DeathListener implements Listener {
             meta.getPersistentDataContainer().set(
                     PvPCombatPlugin.TROPHY_TOTEM_KEY,
                     PersistentDataType.STRING,
-                    killer.getUniqueId().toString()
+                    killerId.toString()
             );
             drop.setItemMeta(meta);
         }

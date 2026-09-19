@@ -34,7 +34,7 @@ public final class ShardGuiListener implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onClick(InventoryClickEvent event) {
-        if (!event.getView().getTitle().equals(GuiService.TITLE)) return;
+        if (!gui.isUpgradeMenu(event.getView().getTopInventory())) return;
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
