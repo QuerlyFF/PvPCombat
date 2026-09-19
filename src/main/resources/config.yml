@@ -2,26 +2,49 @@
 # PvPCombat configuration
 # Paper 1.21.1 / Java 21
 # ============================================================
+
 combat:
+  # Длина PvP Combat. Каждый новый PvP-удар обновляет таймер обоих игроков.
   duration-seconds: 30
+  # Антифарм Осколков для направленной пары killer -> victim.
   shard-reward-cooldown-minutes: 30
+  # Как часто один и тот же погибший игрок может терять характеристику.
   stat-loss-cooldown-minutes: 30
+
 pearls:
+  # Количество бросков до дополнительного КД PvPCombat.
   charges: 3
+  # Дополнительный КД после использования всех зарядов.
   recharge-seconds: 10
+
 movement:
+  # Можно ли начинать новый полёт на элитрах во время Combat.
   allow-elytra-in-combat: false
+  # Можно ли ускоряться фейерверком на элитрах во время Combat.
   allow-fireworks-in-combat: false
+
 totems:
+  # Максимум тотемов в инвентаре, основной и второй руке суммарно.
   max-carried: 2
+  # Разрешить пополнение тотемов во время Combat из обычных источников:
+  # сундуков, шалкеров, эндер-сундука, земли и передачи игроком.
   allow-external-sources-in-combat: false
+  # Трофейный тотем разрешён только если именно пара killer/victim
+  # находилась в PvP не меньше этого времени.
   loot-min-fight-seconds: 10
+  # Защита от спама уведомлениями при повторных попытках поднять тотем.
+  notice-cooldown-ms: 1500
+
 end-crystal:
+  # Сколько процентов от ванильного урона End Crystal оставить.
+  # 85 = уменьшить урон на 15%.
   damage-percent: 85.0
+
 stats:
   damage:
     max-percent: 25.0
     levels: 7
+    # true = бонус применяется только к урону по игрокам.
     pvp-only: true
   health:
     min-hearts: 7.0
@@ -32,10 +55,12 @@ stats:
     max-percent: 25.0
     levels: 7
   satiety:
+    # Уменьшение именно exhaustion, а не округлённой потери hunger bar.
     max-reduction-percent: 70.0
     levels: 7
   ability:
     max-level: 9
+
 death-penalty:
   weights:
     ability: 40
@@ -43,6 +68,7 @@ death-penalty:
     health: 15
     speed: 10
     satiety: 5
+
 abilities:
   sword:
     chances: [3, 5, 7, 9, 12, 15, 18, 20, 21]
@@ -61,6 +87,7 @@ abilities:
     chances: [9, 12, 15, 18, 20, 22, 24, 26, 28]
     armor-durability-multiplier: [3, 3, 3, 5, 5, 5, 7, 7, 7]
     stun-seconds: [0.75, 0.75, 0.75, 1.0, 1.0, 1.0, 1.25, 1.25, 1.25]
+
 items:
   shard:
     material: AMETHYST_SHARD
@@ -68,7 +95,13 @@ items:
     lore:
       - '&7ПКМ — открыть прокачку характеристик.'
       - '&8Предмет PvPCombat'
+
 scoreboard:
+  enabled: true
+  # PvPCombat никогда не заменяет Scoreboard объект другого плагина.
+  # Если SIDEBAR занят чужим objective, PvPCombat оставляет его нетронутым
+  # и выводит Combat-информацию в ActionBar.
+  actionbar-fallback-when-sidebar-busy: true
   title: '&c&lPvPCombat'
   combat-line: '&f⚔ PvP: &c{seconds} сек.'
   pearl-ready-line: '&f◉ Жемчуг: &b{remaining}/{max}'
