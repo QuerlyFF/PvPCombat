@@ -1,0 +1,4 @@
+package dev.smpcristalix.pvpcombat.service;
+import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;import dev.smpcristalix.pvpcombat.data.YamlDataStore;import org.bukkit.entity.Player;
+/** Антифарм для направленной пары killer -> victim. */
+public final class RewardService{private final YamlDataStore store;private final ShardService shards;private PvPCombatSettings settings;public RewardService(YamlDataStore s,ShardService h,PvPCombatSettings c){store=s;shards=h;settings=c;}public void reload(PvPCombatSettings s){settings=s;}public boolean reward(Player k,Player v){String key=k.getUniqueId()+"."+v.getUniqueId();long now=System.currentTimeMillis(),cd=settings.shardRewardCooldownMinutes()*60000L;if(now-store.rewardCooldown(key)<cd)return false;store.rewardCooldown(key,now);shards.give(k,1);return true;}}

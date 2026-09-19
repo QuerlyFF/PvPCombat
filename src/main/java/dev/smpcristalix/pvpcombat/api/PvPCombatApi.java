@@ -1,0 +1,1 @@
+package dev.smpcristalix.pvpcombat.api;import org.bukkit.entity.Player;import java.util.UUID;/** Стабильный API для квестов и других плагинов. */public interface PvPCombatApi{void giveShards(Player player,int amount);boolean isInCombat(Player player);PlayerStatsSnapshot getStats(UUID playerId);}

@@ -1,0 +1,75 @@
+# ============================================================
+# PvPCombat configuration
+# Paper 1.21.1 / Java 21
+# ============================================================
+combat:
+  duration-seconds: 30
+  shard-reward-cooldown-minutes: 30
+  stat-loss-cooldown-minutes: 30
+pearls:
+  charges: 3
+  recharge-seconds: 10
+movement:
+  allow-elytra-in-combat: false
+  allow-fireworks-in-combat: false
+totems:
+  max-carried: 2
+  allow-external-sources-in-combat: false
+  loot-min-fight-seconds: 10
+end-crystal:
+  damage-percent: 85.0
+stats:
+  damage:
+    max-percent: 25.0
+    levels: 7
+    pvp-only: true
+  health:
+    min-hearts: 7.0
+    base-hearts: 10.0
+    max-hearts: 13.0
+    hearts-per-step: 0.5
+  speed:
+    max-percent: 25.0
+    levels: 7
+  satiety:
+    max-reduction-percent: 70.0
+    levels: 7
+  ability:
+    max-level: 9
+death-penalty:
+  weights:
+    ability: 40
+    damage: 30
+    health: 15
+    speed: 10
+    satiety: 5
+abilities:
+  sword:
+    chances: [3, 5, 7, 9, 12, 15, 18, 20, 21]
+    duration-seconds: [2, 2, 2, 3, 3, 3, 4, 4, 4]
+    damage-per-second-hp: 1.0
+  axe:
+    chances: [7, 10, 13, 15, 17, 20, 22, 24, 26]
+    minimum-attack-charge: 0.75
+    stun-seconds: [1.25, 1.25, 1.25, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+    armor-durability-multiplier: [1, 1, 1, 3, 3, 3, 5, 5, 5]
+  bow:
+    chances: [9, 12, 15, 17, 19, 21, 22, 24, 26]
+    knockback-bonus-percent: [15, 15, 15, 25, 25, 25, 30, 30, 30]
+    slowness-seconds: [1.0, 1.0, 1.0, 1.5, 1.5, 1.5, 2.0, 2.0, 2.0]
+  crossbow:
+    chances: [9, 12, 15, 18, 20, 22, 24, 26, 28]
+    armor-durability-multiplier: [3, 3, 3, 5, 5, 5, 7, 7, 7]
+    stun-seconds: [0.75, 0.75, 0.75, 1.0, 1.0, 1.0, 1.25, 1.25, 1.25]
+items:
+  shard:
+    material: AMETHYST_SHARD
+    name: '&d&lОсколок'
+    lore:
+      - '&7ПКМ — открыть прокачку характеристик.'
+      - '&8Предмет PvPCombat'
+scoreboard:
+  title: '&c&lPvPCombat'
+  combat-line: '&f⚔ PvP: &c{seconds} сек.'
+  pearl-ready-line: '&f◉ Жемчуг: &b{remaining}/{max}'
+  pearl-cooldown-line: '&f◉ Жемчуг: &eКД {seconds} сек.'

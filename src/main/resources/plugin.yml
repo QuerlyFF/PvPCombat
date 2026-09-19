@@ -1,0 +1,13 @@
+name: PvPCombat
+version: 1.0.0
+main: dev.smpcristalix.pvpcombat.PvPCombatPlugin
+api-version: '1.21.1'
+author: QuerlyFF
+commands:
+  pvpcombat:
+    description: Main PvPCombat command
+    usage: /pvpcombat
+    aliases: [pvp]
+permissions:
+  pvpcombat.admin:
+    default: op
