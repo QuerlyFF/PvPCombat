@@ -32,12 +32,19 @@ public final class PlayerLifecycleListener implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         var player = event.getPlayer();
-        if (combat.inCombat(player) && !player.isDead()) {
+        boolean combatLogout = combat.inCombat(player) && !player.isDead();
+
+        if (combatLogout) {
+            // DeathListener заберёт forced killer до очистки Combat-state. Не очищаем
+            // его здесь преждевременно: это делает credit убийцы независимым от того,
+            // в какой точке сервер завершит death pipeline.
             combat.markCombatLogout(player);
             player.setHealth(0.0);
+        } else {
+            combat.clear(player);
         }
+
         scoreboard.forget(player);
-        combat.clear(player);
         pearls.reset(player);
     }
 }
