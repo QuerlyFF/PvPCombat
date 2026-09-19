@@ -68,7 +68,7 @@ public final class PvPCombatPlugin extends JavaPlugin {
         store = new YamlDataStore(this);
         store.load();
 
-        stats = new StatsService(store, settings);
+        stats = new StatsService(this, store, settings);
         shards = new ShardService(this, settings);
         combat = new CombatService(settings);
         pearls = new PearlService(settings);
