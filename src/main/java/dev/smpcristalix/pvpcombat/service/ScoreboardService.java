@@ -2,6 +2,7 @@ package dev.smpcristalix.pvpcombat.service;
 
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -23,6 +24,7 @@ public final class ScoreboardService {
     private final CombatService combat;
     private final PearlService pearls;
     private final NoticeService notices;
+    private final LegacyComponentSerializer legacy = LegacyComponentSerializer.legacyAmpersand();
     private final Map<UUID, PlayerBoardState> states = new HashMap<>();
     private PvPCombatSettings settings;
 
@@ -36,7 +38,7 @@ public final class ScoreboardService {
 
     public void reload(PvPCombatSettings settings) {
         this.settings = settings;
-        states.values().forEach(state -> state.objective.setDisplayName(color(settings.scoreboardTitle())));
+        states.values().forEach(state -> state.objective.displayName(scoreboardTitle()));
     }
 
     public void update(Player player) {
@@ -131,7 +133,7 @@ public final class ScoreboardService {
             objective = board.registerNewObjective(
                     OBJECTIVE_NAME,
                     Criteria.DUMMY,
-                    color(settings.scoreboardTitle())
+                    scoreboardTitle()
             );
         }
 
@@ -173,6 +175,11 @@ public final class ScoreboardService {
         return color(settings.scoreboardPearlReadyLine()
                 .replace("{remaining}", Integer.toString(pearls.remaining(player)))
                 .replace("{max}", Integer.toString(settings.pearlCharges())));
+    }
+
+    private Component scoreboardTitle() {
+        String value = settings.scoreboardTitle();
+        return legacy.deserialize(value == null ? "" : value);
     }
 
     private String color(String value) {
