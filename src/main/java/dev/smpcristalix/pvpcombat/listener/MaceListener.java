@@ -1,7 +1,6 @@
 package dev.smpcristalix.pvpcombat.listener;
 
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
+import dev.smpcristalix.pvpcombat.service.NoticeService;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
@@ -23,6 +22,12 @@ import java.util.Set;
 /** Валидирует ограничения зачарований булавы во всех обычных точках получения и использования. */
 public final class MaceListener implements Listener {
     private static final Set<String> ALLOWED = Set.of("wind_burst", "density", "breach");
+
+    private final NoticeService notices;
+
+    public MaceListener(NoticeService notices) {
+        this.notices = notices;
+    }
 
     @EventHandler(ignoreCancelled = true)
     public void onEnchant(EnchantItemEvent event) {
@@ -60,8 +65,6 @@ public final class MaceListener implements Listener {
         ItemStack mace = player.getInventory().getItemInMainHand();
         if (mace.getType() != Material.MACE || isAllowed(mace.getEnchantments())) return;
 
-        // Даже если некорректная булава появилась через команду/другой плагин,
-        // использовать её в бою до исправления зачарований нельзя.
         event.setCancelled(true);
         notifyPlayer(player);
     }
@@ -84,9 +87,10 @@ public final class MaceListener implements Listener {
     }
 
     private void notifyPlayer(Player player) {
-        player.sendActionBar(Component.text(
-                "Для булавы разрешены только Порыв ветра I, Плотность I и Пробитие I с vanilla-совместимостью.",
-                NamedTextColor.RED
-        ));
+        notices.warn(
+                player,
+                "mace-invalid",
+                "Для булавы разрешены только Порыв ветра I, Плотность I и Пробитие I с vanilla-совместимостью."
+        );
     }
 }

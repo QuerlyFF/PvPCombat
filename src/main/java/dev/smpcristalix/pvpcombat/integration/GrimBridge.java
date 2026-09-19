@@ -1,32 +1,23 @@
 package dev.smpcristalix.pvpcombat.integration;
 
+import ac.grim.grimac.api.GrimAPIProvider;
+import ac.grim.grimac.api.GrimAbstractAPI;
+import ac.grim.grimac.api.event.EventBus;
+import ac.grim.grimac.api.event.ListenerPriority;
+import ac.grim.grimac.api.event.events.FlagEvent;
+import ac.grim.grimac.api.plugin.GrimPlugin;
 import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
 import dev.smpcristalix.pvpcombat.service.AbilityService;
 import org.bukkit.Bukkit;
-import org.bukkit.event.Cancellable;
-import org.bukkit.event.Event;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
-import org.bukkit.plugin.EventExecutor;
 import org.bukkit.plugin.Plugin;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.Locale;
-import java.util.UUID;
-
-/**
- * Необязательный bridge с GrimAC без жёсткой compile-time зависимости.
- *
- * <p>Legacy Bukkit FlagEvent Grim является async. Поэтому обработчик не трогает
- * Bukkit Player API и читает только thread-safe окно легального movement по UUID.</p>
- */
+/** Необязательная typed-интеграция с актуальным GrimAPI. */
 public final class GrimBridge {
-    private static final String FLAG_EVENT_CLASS = "ac.grim.grimac.api.events.FlagEvent";
-
     private final PvPCombatPlugin plugin;
     private final AbilityService abilities;
-    private Listener listener;
+    private EventBus eventBus;
+    private GrimPlugin grimPlugin;
+    private boolean registered;
 
     public GrimBridge(PvPCombatPlugin plugin, AbilityService abilities) {
         this.plugin = plugin;
@@ -34,90 +25,54 @@ public final class GrimBridge {
     }
 
     public boolean registerIfAvailable() {
+        unregister();
         if (!plugin.getSettings().grimIntegrationEnabled()) return false;
 
         Plugin grim = Bukkit.getPluginManager().getPlugin("GrimAC");
         if (grim == null || !grim.isEnabled()) return false;
 
         try {
-            Class<?> rawClass = Class.forName(
-                    FLAG_EVENT_CLASS,
-                    false,
-                    grim.getClass().getClassLoader()
-            );
-            if (!Event.class.isAssignableFrom(rawClass)) return false;
-
-            @SuppressWarnings("unchecked")
-            Class<? extends Event> eventClass = (Class<? extends Event>) rawClass;
-            listener = new Listener() {};
-            EventExecutor executor = (ignored, event) -> handleFlag(event);
-            Bukkit.getPluginManager().registerEvent(
-                    eventClass,
-                    listener,
-                    EventPriority.LOWEST,
-                    executor,
-                    plugin,
+            GrimAbstractAPI api = GrimAPIProvider.get();
+            eventBus = api.getEventBus();
+            grimPlugin = api.getGrimPlugin(plugin);
+            eventBus.get(FlagEvent.class).onFlagSupplier(
+                    grimPlugin,
+                    (user, check, verbose, currentlyCancelled) ->
+                            currentlyCancelled || abilities.shouldSuppressGrimFlag(
+                                    user.getUniqueId(),
+                                    check.getCheckName()
+                            ),
+                    ListenerPriority.LOWEST,
                     true
             );
-            plugin.getLogger().info("GrimAC bridge enabled: legal PvPCombat movement has targeted exemptions.");
+            registered = true;
+            plugin.getLogger().info(
+                    "GrimAC bridge enabled through typed GrimAPI: only legal PvPCombat movement gets exemptions."
+            );
             return true;
-        } catch (ReflectiveOperationException | LinkageError ex) {
-            plugin.getLogger().warning("GrimAC найден, но bridge не подключён: " + ex.getMessage());
+        } catch (IllegalStateException | IllegalArgumentException | LinkageError ex) {
+            eventBus = null;
+            grimPlugin = null;
+            plugin.getLogger().warning("GrimAC найден, но typed bridge не подключён: " + ex.getMessage());
             return false;
         }
     }
 
-    private void handleFlag(Event event) {
-        if (!(event instanceof Cancellable cancellable)) return;
-
-        Object user = invoke(event, "getUser");
-        Object check = invoke(event, "getCheck");
-        UUID playerId = resolveUuid(user);
-        String checkName = resolveCheckName(check);
-        if (playerId == null || checkName == null) return;
-
-        if (abilities.shouldSuppressGrimFlag(playerId, checkName)) {
-            cancellable.setCancelled(true);
-        }
+    /** Reload конфигурации может включать/выключать интеграцию без restart сервера. */
+    public void reload() {
+        registerIfAvailable();
     }
 
-    private UUID resolveUuid(Object user) {
-        if (user == null) return null;
-        for (String methodName : new String[]{"getUniqueId", "getUuid", "getUUID"}) {
-            Object value = invoke(user, methodName);
-            if (value instanceof UUID uuid) return uuid;
-        }
-
-        for (String fieldName : new String[]{"uuid", "uniqueId"}) {
-            try {
-                Field field = user.getClass().getField(fieldName);
-                Object value = field.get(user);
-                if (value instanceof UUID uuid) return uuid;
-            } catch (ReflectiveOperationException ignored) {
-                // Пробуем следующий совместимый вариант Grim API.
-            }
-        }
-        return null;
-    }
-
-    private String resolveCheckName(Object check) {
-        if (check == null) return null;
-        for (String methodName : new String[]{"getCheckName", "getConfigName", "getName"}) {
-            Object value = invoke(check, methodName);
-            if (value instanceof String text && !text.isBlank()) {
-                return text.toLowerCase(Locale.ROOT);
-            }
-        }
-        return null;
-    }
-
-    private Object invoke(Object target, String methodName) {
-        if (target == null) return null;
+    public void unregister() {
+        if (!registered || eventBus == null || grimPlugin == null) return;
         try {
-            Method method = target.getClass().getMethod(methodName);
-            return method.invoke(target);
-        } catch (ReflectiveOperationException ignored) {
-            return null;
+            eventBus.unregisterAllListeners(grimPlugin);
+        } catch (RuntimeException ignored) {
+            // Grim может уже находиться в процессе выключения.
+        } finally {
+            registered = false;
+            eventBus = null;
+            grimPlugin = null;
         }
     }
 }

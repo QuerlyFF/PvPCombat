@@ -3,7 +3,6 @@ package dev.smpcristalix.pvpcombat.service;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.Criteria;
@@ -11,11 +10,13 @@ import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** Combat sidebar с безопасным fallback, если SIDEBAR уже занят другим плагином. */
+/** Combat sidebar с безопасным fallback, если SIDEBAR уже занят или scoreboard разделяется игроками. */
 public final class ScoreboardService {
     private static final String OBJECTIVE_NAME = "pvpcombat_core";
     private static final String COMBAT_SUFFIX = "§0§r";
@@ -41,14 +42,33 @@ public final class ScoreboardService {
         states.values().forEach(state -> state.objective.displayName(scoreboardTitle()));
     }
 
+    /**
+     * Один проход считает, какие Scoreboard разделяются игроками, второй обновляет UI.
+     * Это O(n) вместо прежней проверки каждого игрока против всех остальных O(n²).
+     */
+    public void updateAll(Collection<? extends Player> players) {
+        Map<Scoreboard, Integer> boardUsers = new IdentityHashMap<>();
+        for (Player player : players) {
+            boardUsers.merge(player.getScoreboard(), 1, Integer::sum);
+        }
+
+        for (Player player : players) {
+            update(player, boardUsers.getOrDefault(player.getScoreboard(), 0) > 1);
+        }
+    }
+
     public void update(Player player) {
+        update(player, false);
+    }
+
+    private void update(Player player, boolean sharedBoard) {
         if (!settings.scoreboardEnabled() || !combat.inCombat(player)) {
             clear(player);
             return;
         }
 
         Scoreboard currentBoard = player.getScoreboard();
-        if (isSharedBySeveralPlayers(player, currentBoard)) {
+        if (sharedBoard) {
             releaseOurSidebar(player, currentBoard);
             showFallback(player);
             return;
@@ -107,15 +127,6 @@ public final class ScoreboardService {
         ));
     }
 
-    private boolean isSharedBySeveralPlayers(Player player, Scoreboard board) {
-        for (Player other : Bukkit.getOnlinePlayers()) {
-            if (!other.getUniqueId().equals(player.getUniqueId()) && other.getScoreboard() == board) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private PlayerBoardState stateFor(Player player) {
         Scoreboard board = player.getScoreboard();
         PlayerBoardState old = states.get(player.getUniqueId());
@@ -145,7 +156,7 @@ public final class ScoreboardService {
     private void updateLine(PlayerBoardState state, String line, int score, boolean first) {
         String previous = first ? state.combatLine : state.pearlLine;
         if (line.equals(previous)) return;
-        if (previous != null) state.board.resetScores(previous);
+        if (previous != null) state.objective.getScore(previous).resetScore();
         state.objective.getScore(line).setScore(score);
         if (first) state.combatLine = line;
         else state.pearlLine = line;
@@ -153,11 +164,11 @@ public final class ScoreboardService {
 
     private void clearLines(PlayerBoardState state) {
         if (state.combatLine != null) {
-            state.board.resetScores(state.combatLine);
+            state.objective.getScore(state.combatLine).resetScore();
             state.combatLine = null;
         }
         if (state.pearlLine != null) {
-            state.board.resetScores(state.pearlLine);
+            state.objective.getScore(state.pearlLine).resetScore();
             state.pearlLine = null;
         }
     }

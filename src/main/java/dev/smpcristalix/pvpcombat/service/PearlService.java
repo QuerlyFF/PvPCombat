@@ -16,8 +16,10 @@ public final class PearlService {
         this.settings = settings;
     }
 
+    /** Reload сбрасывает runtime-счётчики, чтобы смена charges не создала вечный cooldown. */
     public void reload(PvPCombatSettings settings) {
         this.settings = settings;
+        states.clear();
     }
 
     public boolean canThrow(Player player) {

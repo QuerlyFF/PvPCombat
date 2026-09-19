@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** UUID-хранилище прогресса, anti-farm cooldown и отложенных наград. */
 public final class YamlDataStore {
@@ -22,9 +23,12 @@ public final class YamlDataStore {
     private final File file;
     private final Object ioLock = new Object();
     private final AtomicBoolean asyncSaveRunning = new AtomicBoolean(false);
+    private final AtomicBoolean asyncSaveRequested = new AtomicBoolean(false);
+    private final AtomicLong snapshotSequence = new AtomicLong();
     private final Map<UUID, PlayerProfile> profiles = new HashMap<>();
     private final Map<String, Long> rewardCooldowns = new HashMap<>();
     private final Map<UUID, Integer> pendingShards = new HashMap<>();
+    private long lastWrittenSequence;
 
     public YamlDataStore(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -125,18 +129,30 @@ public final class YamlDataStore {
         return amount == null ? 0 : Math.max(0, amount);
     }
 
+    /**
+     * Снимок всегда создаётся на server thread, а YAML сериализуется асинхронно.
+     * Повторный запрос во время записи не теряется: после неё запускается ещё один снимок.
+     */
     public void saveAsync() {
+        if (!asyncSaveRunning.compareAndSet(false, true)) {
+            asyncSaveRequested.set(true);
+            return;
+        }
+
         SaveSnapshot snapshot = snapshot();
-        if (!asyncSaveRunning.compareAndSet(false, true)) return;
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
                 writeSnapshot(snapshot);
             } finally {
                 asyncSaveRunning.set(false);
+                if (asyncSaveRequested.getAndSet(false) && plugin.isEnabled()) {
+                    Bukkit.getScheduler().runTask(plugin, this::saveAsync);
+                }
             }
         });
     }
 
+    /** Синхронный финальный save получает более новый sequence и не может быть затёрт старым async snapshot. */
     public void save() {
         writeSnapshot(snapshot());
     }
@@ -152,6 +168,7 @@ public final class YamlDataStore {
                 profile.lastStatLossAt()
         )));
         return new SaveSnapshot(
+                snapshotSequence.incrementAndGet(),
                 profileCopy,
                 new HashMap<>(rewardCooldowns),
                 new HashMap<>(pendingShards)
@@ -177,11 +194,13 @@ public final class YamlDataStore {
         );
 
         synchronized (ioLock) {
+            if (snapshot.sequence() <= lastWrittenSequence) return;
             try {
                 if (!plugin.getDataFolder().exists()) plugin.getDataFolder().mkdirs();
                 File temp = new File(plugin.getDataFolder(), "data.yml.tmp");
                 yaml.save(temp);
                 moveAtomically(temp, file);
+                lastWrittenSequence = snapshot.sequence();
             } catch (IOException ex) {
                 plugin.getLogger().severe("Не удалось сохранить data.yml: " + ex.getMessage());
             }
@@ -211,6 +230,7 @@ public final class YamlDataStore {
     ) {}
 
     private record SaveSnapshot(
+            long sequence,
             Map<UUID, ProfileSnapshot> profiles,
             Map<String, Long> rewardCooldowns,
             Map<UUID, Integer> pendingShards

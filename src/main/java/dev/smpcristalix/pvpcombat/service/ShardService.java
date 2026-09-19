@@ -69,6 +69,7 @@ public final class ShardService {
         return consume(player, 1);
     }
 
+    /** Списание транзакционное: при нехватке Осколков инвентарь не меняется. */
     public boolean consume(Player player, int amount) {
         if (amount <= 0) return true;
         if (count(player) < amount) return false;
@@ -78,11 +79,17 @@ public final class ShardService {
         for (int slot = 0; slot < contents.length && remaining > 0; slot++) {
             ItemStack item = contents[slot];
             if (!isShard(item)) continue;
+
             int take = Math.min(item.getAmount(), remaining);
             int left = item.getAmount() - take;
             remaining -= take;
-            if (left == 0) player.getInventory().setItem(slot, null);
-            else item.setAmount(left);
+            if (left == 0) {
+                player.getInventory().setItem(slot, null);
+            } else {
+                ItemStack updated = item.clone();
+                updated.setAmount(left);
+                player.getInventory().setItem(slot, updated);
+            }
         }
         return true;
     }

@@ -3,6 +3,7 @@ package dev.smpcristalix.pvpcombat.service;
 import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
@@ -21,6 +22,12 @@ import java.util.concurrent.ThreadLocalRandom;
 
 /** Реализует weapon abilities и их краткоживущий runtime-state. */
 public final class AbilityService {
+    private static final int HELMET_BIT = 1;
+    private static final int CHEST_BIT = 1 << 1;
+    private static final int LEGS_BIT = 1 << 2;
+    private static final int BOOTS_BIT = 1 << 3;
+    private static final int ALL_ARMOR_BITS = HELMET_BIT | CHEST_BIT | LEGS_BIT | BOOTS_BIT;
+
     private final PvPCombatPlugin plugin;
     private final StatsService stats;
     private final CombatService combat;
@@ -130,12 +137,30 @@ public final class AbilityService {
         );
     }
 
-    public int multiplyArmorDurability(Player player, int vanillaDamage) {
-        PendingArmorMultiplier pending = pendingArmorMultipliers.get(player.getUniqueId());
+    /** Один proc может усилить износ каждого armor-slot не более одного раза. */
+    public int multiplyArmorDurability(Player player, Material armorMaterial, int vanillaDamage) {
+        int armorBit = armorBit(armorMaterial);
+        if (armorBit == 0) return vanillaDamage;
+
+        UUID id = player.getUniqueId();
+        PendingArmorMultiplier pending = pendingArmorMultipliers.get(id);
         if (pending == null) return vanillaDamage;
         if (pending.expiresAtTick() < Bukkit.getCurrentTick()) {
-            pendingArmorMultipliers.remove(player.getUniqueId(), pending);
+            pendingArmorMultipliers.remove(id, pending);
             return vanillaDamage;
+        }
+        if ((pending.remainingArmorBits() & armorBit) == 0) return vanillaDamage;
+
+        int remainingBits = pending.remainingArmorBits() & ~armorBit;
+        if (remainingBits == 0) {
+            pendingArmorMultipliers.remove(id, pending);
+        } else {
+            pendingArmorMultipliers.put(id, new PendingArmorMultiplier(
+                    pending.token(),
+                    pending.multiplier(),
+                    pending.expiresAtTick(),
+                    remainingBits
+            ));
         }
         return Math.max(0, vanillaDamage * pending.multiplier());
     }
@@ -218,13 +243,15 @@ public final class AbilityService {
         PendingArmorMultiplier pending = new PendingArmorMultiplier(
                 UUID.randomUUID(),
                 multiplier,
-                expiresAtTick
+                expiresAtTick,
+                ALL_ARMOR_BITS
         );
         pendingArmorMultipliers.merge(id, pending, (oldValue, newValue) ->
                 new PendingArmorMultiplier(
                         newValue.token(),
                         Math.max(oldValue.multiplier(), newValue.multiplier()),
-                        Math.max(oldValue.expiresAtTick(), newValue.expiresAtTick())
+                        Math.max(oldValue.expiresAtTick(), newValue.expiresAtTick()),
+                        oldValue.remainingArmorBits() | newValue.remainingArmorBits()
                 )
         );
         PendingArmorMultiplier stored = pendingArmorMultipliers.get(id);
@@ -232,6 +259,15 @@ public final class AbilityService {
                 pendingArmorMultipliers.computeIfPresent(id, (ignored, current) ->
                         current.token().equals(stored.token()) ? null : current
                 ), 2L);
+    }
+
+    private int armorBit(Material material) {
+        String name = material.name();
+        if (name.endsWith("_HELMET")) return HELMET_BIT;
+        if (name.endsWith("_CHESTPLATE")) return CHEST_BIT;
+        if (name.endsWith("_LEGGINGS")) return LEGS_BIT;
+        if (name.endsWith("_BOOTS")) return BOOTS_BIT;
+        return 0;
     }
 
     private void grantGrimGrace(Player player, long durationMillis) {
@@ -252,5 +288,10 @@ public final class AbilityService {
         return ThreadLocalRandom.current().nextDouble(100.0) < percent;
     }
 
-    private record PendingArmorMultiplier(UUID token, int multiplier, long expiresAtTick) {}
+    private record PendingArmorMultiplier(
+            UUID token,
+            int multiplier,
+            long expiresAtTick,
+            int remainingArmorBits
+    ) {}
 }

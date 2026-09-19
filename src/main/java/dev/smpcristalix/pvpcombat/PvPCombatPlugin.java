@@ -50,6 +50,7 @@ public final class PvPCombatPlugin extends JavaPlugin {
     private GuiService gui;
     private ScoreboardService scoreboard;
     private NoticeService notices;
+    private GrimBridge grimBridge;
 
     private CombatListener combatListener;
     private MovementListener movementListener;
@@ -85,11 +86,12 @@ public final class PvPCombatPlugin extends JavaPlugin {
         upgrades = new UpgradeService(stats, shards, settings);
         gui = new GuiService(stats, shards);
         scoreboard = new ScoreboardService(combat, pearls, notices, settings);
+        grimBridge = new GrimBridge(this, abilities);
 
         registerListeners();
         registerCommand();
         registerApi();
-        new GrimBridge(this, abilities).registerIfAvailable();
+        grimBridge.registerIfAvailable();
         Bukkit.getOnlinePlayers().forEach(stats::apply);
         startSchedulers();
 
@@ -107,9 +109,9 @@ public final class PvPCombatPlugin extends JavaPlugin {
         pluginManager.registerEvents(new ProjectileWeaponListener(), this);
         pluginManager.registerEvents(new ArmorDurabilityListener(abilities), this);
         pluginManager.registerEvents(movementListener, this);
-        pluginManager.registerEvents(new ShardGuiListener(shards, gui, upgrades), this);
+        pluginManager.registerEvents(new ShardGuiListener(this, shards, gui, upgrades), this);
         pluginManager.registerEvents(totemListener, this);
-        pluginManager.registerEvents(new MaceListener(), this);
+        pluginManager.registerEvents(new MaceListener(notices), this);
         pluginManager.registerEvents(deathListener, this);
         pluginManager.registerEvents(new PlayerLifecycleListener(
                 stats,
@@ -139,10 +141,7 @@ public final class PvPCombatPlugin extends JavaPlugin {
     private void startSchedulers() {
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             combat.clearExpired();
-            for (var player : Bukkit.getOnlinePlayers()) {
-                if (combat.inCombat(player)) scoreboard.update(player);
-                else scoreboard.clear(player);
-            }
+            scoreboard.updateAll(Bukkit.getOnlinePlayers());
         }, 10L, 10L);
 
         Bukkit.getScheduler().runTaskTimer(this, () ->
@@ -178,6 +177,7 @@ public final class PvPCombatPlugin extends JavaPlugin {
         movementListener.reload(settings);
         totemListener.reload(settings);
         deathListener.reload(settings);
+        if (grimBridge != null) grimBridge.reload();
         Bukkit.getOnlinePlayers().forEach(stats::apply);
         return null;
     }
@@ -188,6 +188,7 @@ public final class PvPCombatPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (grimBridge != null) grimBridge.unregister();
         if (store != null) {
             if (rewards != null) rewards.cleanupExpired();
             store.save();

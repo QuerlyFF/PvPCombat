@@ -13,7 +13,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
@@ -53,12 +52,7 @@ public final class TotemListener implements Listener {
 
         if (!combat.inCombat(player) || settings.allowExternalTotemSourcesInCombat()) return;
 
-        String trophyOwner = stack.hasItemMeta()
-                ? stack.getItemMeta().getPersistentDataContainer().get(
-                        PvPCombatPlugin.TROPHY_TOTEM_KEY,
-                        PersistentDataType.STRING
-                )
-                : null;
+        String trophyOwner = trophyOwner(stack);
         if (!player.getUniqueId().toString().equals(trophyOwner)) {
             denyPickup(event, entityItem);
             notices.warn(
@@ -66,8 +60,19 @@ public final class TotemListener implements Listener {
                     "totem-source",
                     "Во время Combat нельзя пополнять тотемы из внешних источников."
             );
-            return;
         }
+    }
+
+    /**
+     * Метка трофея одноразовая, но снимается только после того, как pickup пережил
+     * все обычные cancel-listener'ы. Иначе поздняя отмена могла испортить тотем на земле.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPickupCommitted(EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        ItemStack stack = event.getItem().getItemStack();
+        if (!isTotem(stack)) return;
+        if (!player.getUniqueId().toString().equals(trophyOwner(stack))) return;
 
         var meta = stack.getItemMeta();
         meta.getPersistentDataContainer().remove(PvPCombatPlugin.TROPHY_TOTEM_KEY);
@@ -105,24 +110,6 @@ public final class TotemListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onDrag(InventoryDragEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)) return;
-        if (!combat.inCombat(player) || settings.allowExternalTotemSourcesInCombat()) return;
-        if (!isTotem(event.getOldCursor())) return;
-
-        int topSize = event.getView().getTopInventory().getSize();
-        boolean touchesExternalInventory = event.getRawSlots().stream().anyMatch(slot -> slot < topSize);
-        if (!touchesExternalInventory) return;
-
-        event.setCancelled(true);
-        notices.warn(
-                player,
-                "totem-container",
-                "Во время Combat нельзя пополнять тотемы из внешних источников."
-        );
-    }
-
     /** Лишние тотемы выбрасываются клонами, поэтому custom name/lore/PDC не теряются. */
     public void enforceLimit(Player player) {
         int maximum = settings.maxTotemsCarried();
@@ -144,7 +131,11 @@ public final class TotemListener implements Listener {
             droppedCopy.setAmount(remove);
             overflow.add(droppedCopy);
             if (keep == 0) player.getInventory().setItem(slot, null);
-            else item.setAmount(keep);
+            else {
+                ItemStack keptCopy = item.clone();
+                keptCopy.setAmount(keep);
+                player.getInventory().setItem(slot, keptCopy);
+            }
         }
 
         for (ItemStack stack : overflow) {
@@ -171,6 +162,14 @@ public final class TotemListener implements Listener {
             if (isTotem(item)) count += item.getAmount();
         }
         return count;
+    }
+
+    private String trophyOwner(ItemStack stack) {
+        if (!stack.hasItemMeta()) return null;
+        return stack.getItemMeta().getPersistentDataContainer().get(
+                PvPCombatPlugin.TROPHY_TOTEM_KEY,
+                PersistentDataType.STRING
+        );
     }
 
     private void denyPickup(EntityPickupItemEvent event, Item item) {

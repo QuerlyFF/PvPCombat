@@ -17,8 +17,13 @@ public final class ArmorDurabilityListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onItemDamage(PlayerItemDamageEvent event) {
-        if (!isArmor(event.getItem().getType())) return;
-        event.setDamage(abilities.multiplyArmorDurability(event.getPlayer(), event.getDamage()));
+        Material material = event.getItem().getType();
+        if (!isArmor(material)) return;
+        event.setDamage(abilities.multiplyArmorDurability(
+                event.getPlayer(),
+                material,
+                event.getDamage()
+        ));
     }
 
     private boolean isArmor(Material material) {

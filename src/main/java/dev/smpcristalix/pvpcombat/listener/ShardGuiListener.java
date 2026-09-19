@@ -3,20 +3,24 @@ package dev.smpcristalix.pvpcombat.listener;
 import dev.smpcristalix.pvpcombat.service.GuiService;
 import dev.smpcristalix.pvpcombat.service.ShardService;
 import dev.smpcristalix.pvpcombat.service.UpgradeService;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.plugin.java.JavaPlugin;
 
 /** ПКМ настоящим Осколком открывает GUI; клик по slot выбирает характеристику. */
 public final class ShardGuiListener implements Listener {
+    private final JavaPlugin plugin;
     private final ShardService shards;
     private final GuiService gui;
     private final UpgradeService upgrades;
 
-    public ShardGuiListener(ShardService shards, GuiService gui, UpgradeService upgrades) {
+    public ShardGuiListener(JavaPlugin plugin, ShardService shards, GuiService gui, UpgradeService upgrades) {
+        this.plugin = plugin;
         this.shards = shards;
         this.gui = gui;
         this.upgrades = upgrades;
@@ -43,7 +47,11 @@ public final class ShardGuiListener implements Listener {
 
         UpgradeService.Result result = upgrades.upgrade(player, stat);
         player.sendMessage((result.success() ? "§a" : "§c") + result.message());
-        gui.open(player);
+
+        // Paper запрещает менять InventoryView прямо внутри InventoryClickEvent.
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) gui.open(player);
+        });
     }
 
     private UpgradeService.Stat statBySlot(int rawSlot) {
