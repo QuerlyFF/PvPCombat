@@ -14,6 +14,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /** Реализует weapon abilities и их краткоживущий runtime-state. */
@@ -24,7 +25,7 @@ public final class AbilityService {
     private final Map<UUID, Long> stunnedUntil = new HashMap<>();
     private final Map<UUID, BukkitRunnable> bleeds = new HashMap<>();
     private final Map<UUID, PendingArmorMultiplier> pendingArmorMultipliers = new HashMap<>();
-    private final Map<UUID, Long> grimGraceUntil = new HashMap<>();
+    private final Map<UUID, Long> grimGraceUntil = new ConcurrentHashMap<>();
     private final Set<UUID> internalDamageVictims = new HashSet<>();
     private PvPCombatSettings settings;
 
@@ -52,11 +53,11 @@ public final class AbilityService {
         return internalDamageVictims.contains(victim.getUniqueId());
     }
 
-    public boolean shouldSuppressGrimFlag(Player player, String rawCheckName) {
-        UUID id = player.getUniqueId();
-        long until = grimGraceUntil.getOrDefault(id, 0L);
+    /** Вызывается из async Grim FlagEvent, поэтому использует только ConcurrentHashMap и UUID. */
+    public boolean shouldSuppressGrimFlag(UUID playerId, String rawCheckName) {
+        long until = grimGraceUntil.getOrDefault(playerId, 0L);
         if (until <= System.currentTimeMillis()) {
-            grimGraceUntil.remove(id);
+            grimGraceUntil.remove(playerId, until);
             return false;
         }
 
@@ -108,6 +109,7 @@ public final class AbilityService {
                 true
         ));
 
+        // По решению проекта текущую формулу усиления velocity не меняем.
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (!victim.isOnline() || victim.isDead()) return;
             victim.setVelocity(victim.getVelocity().multiply(1.0 + knockbackBonus / 100.0));
@@ -232,7 +234,9 @@ public final class AbilityService {
         long delayTicks = Math.max(1L, (durationMillis + 49L) / 50L + 2L);
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             long storedUntil = grimGraceUntil.getOrDefault(id, 0L);
-            if (storedUntil <= System.currentTimeMillis()) grimGraceUntil.remove(id);
+            if (storedUntil <= System.currentTimeMillis()) {
+                grimGraceUntil.remove(id, storedUntil);
+            }
         }, delayTicks);
     }
 

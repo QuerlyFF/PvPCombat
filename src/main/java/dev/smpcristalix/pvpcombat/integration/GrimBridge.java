@@ -3,7 +3,6 @@ package dev.smpcristalix.pvpcombat.integration;
 import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
 import dev.smpcristalix.pvpcombat.service.AbilityService;
 import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventPriority;
@@ -19,9 +18,8 @@ import java.util.UUID;
 /**
  * Необязательный bridge с GrimAC без жёсткой compile-time зависимости.
  *
- * <p>Мы не выключаем проверки Grim глобально. На короткое время подавляются только
- * Simulation/AntiKB-флаги, которые совпали с заведомо легальным custom movement
- * PvPCombat: станом или нашим серверным velocity.</p>
+ * <p>Legacy Bukkit FlagEvent Grim является async. Поэтому обработчик не трогает
+ * Bukkit Player API и читает только thread-safe окно легального movement по UUID.</p>
  */
 public final class GrimBridge {
     private static final String FLAG_EVENT_CLASS = "ac.grim.grimac.api.events.FlagEvent";
@@ -78,9 +76,7 @@ public final class GrimBridge {
         String checkName = resolveCheckName(check);
         if (playerId == null || checkName == null) return;
 
-        Player player = Bukkit.getPlayer(playerId);
-        if (player == null) return;
-        if (abilities.shouldSuppressGrimFlag(player, checkName)) {
+        if (abilities.shouldSuppressGrimFlag(playerId, checkName)) {
             cancellable.setCancelled(true);
         }
     }
@@ -98,7 +94,7 @@ public final class GrimBridge {
                 Object value = field.get(user);
                 if (value instanceof UUID uuid) return uuid;
             } catch (ReflectiveOperationException ignored) {
-                // Пробуем следующий совместимый вариант API.
+                // Пробуем следующий совместимый вариант Grim API.
             }
         }
         return null;

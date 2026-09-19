@@ -120,12 +120,6 @@ public final class YamlDataStore {
         pendingShards.merge(playerId, amount, Integer::sum);
     }
 
-    public int takePendingShards(UUID playerId) {
-        return pendingShards.remove(playerId) == null
-                ? 0
-                : Math.max(0, pendingShards.getOrDefault(playerId, 0));
-    }
-
     public int removePendingShards(UUID playerId) {
         Integer amount = pendingShards.remove(playerId);
         return amount == null ? 0 : Math.max(0, amount);
