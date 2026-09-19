@@ -1,1 +1,59 @@
-package dev.smpcristalix.pvpcombat.listener;import dev.smpcristalix.pvpcombat.service.*;import org.bukkit.event.*;import org.bukkit.event.block.Action;import org.bukkit.event.inventory.InventoryClickEvent;import org.bukkit.event.player.PlayerInteractEvent;/** ПКМ Осколком открывает GUI, slot преобразуется в выбранный stat. */public final class ShardGuiListener implements Listener{private final ShardService shards;private final GuiService gui;private final UpgradeService upgrades;public ShardGuiListener(ShardService s,GuiService g,UpgradeService u){shards=s;gui=g;upgrades=u;}@EventHandler(ignoreCancelled=true)public void onUse(PlayerInteractEvent e){if(e.getAction()!=Action.RIGHT_CLICK_AIR&&e.getAction()!=Action.RIGHT_CLICK_BLOCK)return;if(!shards.isShard(e.getItem()))return;e.setCancelled(true);gui.open(e.getPlayer());}@EventHandler(ignoreCancelled=true)public void onClick(InventoryClickEvent e){if(!e.getView().getTitle().equals(GuiService.TITLE))return;e.setCancelled(true);if(!(e.getWhoClicked() instanceof org.bukkit.entity.Player p))return;UpgradeService.Stat s=switch(e.getRawSlot()){case 10->UpgradeService.Stat.DAMAGE;case 11->UpgradeService.Stat.HEALTH;case 13->UpgradeService.Stat.SPEED;case 15->UpgradeService.Stat.SATIETY;case 16->UpgradeService.Stat.ABILITY;default->null;};if(s==null)return;var r=upgrades.upgrade(p,s);p.sendMessage((r.success()?"§a":"§c")+r.message());gui.open(p);}}
+package dev.smpcristalix.pvpcombat.listener;
+
+import dev.smpcristalix.pvpcombat.service.GuiService;
+import dev.smpcristalix.pvpcombat.service.ShardService;
+import dev.smpcristalix.pvpcombat.service.UpgradeService;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+
+/** ПКМ настоящим Осколком открывает GUI; клик по slot выбирает характеристику. */
+public final class ShardGuiListener implements Listener {
+    private final ShardService shards;
+    private final GuiService gui;
+    private final UpgradeService upgrades;
+
+    public ShardGuiListener(ShardService shards, GuiService gui, UpgradeService upgrades) {
+        this.shards = shards;
+        this.gui = gui;
+        this.upgrades = upgrades;
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onUse(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_AIR
+                && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        if (!shards.isShard(event.getItem())) return;
+
+        event.setCancelled(true);
+        gui.open(event.getPlayer());
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onClick(InventoryClickEvent event) {
+        if (!event.getView().getTitle().equals(GuiService.TITLE)) return;
+        event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+
+        UpgradeService.Stat stat = statBySlot(event.getRawSlot());
+        if (stat == null) return;
+
+        UpgradeService.Result result = upgrades.upgrade(player, stat);
+        player.sendMessage((result.success() ? "§a" : "§c") + result.message());
+        gui.open(player);
+    }
+
+    private UpgradeService.Stat statBySlot(int rawSlot) {
+        return switch (rawSlot) {
+            case 10 -> UpgradeService.Stat.DAMAGE;
+            case 11 -> UpgradeService.Stat.HEALTH;
+            case 13 -> UpgradeService.Stat.SPEED;
+            case 15 -> UpgradeService.Stat.SATIETY;
+            case 16 -> UpgradeService.Stat.ABILITY;
+            default -> null;
+        };
+    }
+}
