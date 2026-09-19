@@ -33,7 +33,7 @@ import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /** Composition root PvPCombat: связывает сервисы, listener'ы и жизненный цикл. */
-public final class PvPCombatPlugin extends JavaPlugin {
+public class PvPCombatPlugin extends JavaPlugin {
     private static final String GRIM_BRIDGE_CLASS = "dev.smpcristalix.pvpcombat.integration.GrimBridge";
 
     public static NamespacedKey PROJECTILE_WEAPON_KEY;
