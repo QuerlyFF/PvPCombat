@@ -1,1 +1,149 @@
-package dev.smpcristalix.pvpcombat.command;import dev.smpcristalix.pvpcombat.PvPCombatPlugin;import dev.smpcristalix.pvpcombat.data.PlayerProfile;import dev.smpcristalix.pvpcombat.service.*;import org.bukkit.Bukkit;import org.bukkit.command.*;import org.bukkit.entity.Player;/** Commands are thin; game rules stay in services. */public final class PvPCombatCommand implements CommandExecutor{private final PvPCombatPlugin plugin;private final GuiService gui;private final ShardService shards;private final StatsService stats;public PvPCombatCommand(PvPCombatPlugin p,GuiService g,ShardService h,StatsService s){plugin=p;gui=g;shards=h;stats=s;}public boolean onCommand(CommandSender sender,Command cmd,String label,String[] args){if(args.length==0){if(sender instanceof Player p)gui.open(p);else sender.sendMessage("Use /pvpcombat stats <player>");return true;}return switch(args[0].toLowerCase()){case"stats"->stats(sender,args);case"give"->give(sender,args);case"set"->set(sender,args);case"reload"->reload(sender);default->false;};}private boolean stats(CommandSender s,String[] a){Player t=a.length>=2?Bukkit.getPlayerExact(a[1]):(s instanceof Player p?p:null);if(t==null){s.sendMessage("§cИгрок не найден.");return true;}PlayerProfile p=stats.profile(t.getUniqueId());s.sendMessage("§dPvPCombat §7— §f"+t.getName());s.sendMessage("§7Урон: §f"+p.damageLevel()+" §7| Здоровье: §f"+String.format("%.1f",stats.healthHearts(p))+"❤");s.sendMessage("§7Скорость: §f"+p.speedLevel()+" §7| Сытость: §f"+p.satietyLevel()+" §7| Умения: §f"+p.abilityLevel());return true;}private boolean give(CommandSender s,String[] a){if(!admin(s))return true;if(a.length<3){s.sendMessage("§c/pvpcombat give <игрок> <количество>");return true;}Player t=Bukkit.getPlayerExact(a[1]);if(t==null){s.sendMessage("§cИгрок не найден.");return true;}int n;try{n=Integer.parseInt(a[2]);}catch(NumberFormatException ex){s.sendMessage("§cКоличество должно быть числом.");return true;}if(n<=0){s.sendMessage("§cКоличество должно быть > 0.");return true;}shards.give(t,n);s.sendMessage("§aВыдано "+n+" Осколков игроку "+t.getName());return true;}private boolean set(CommandSender s,String[] a){if(!admin(s))return true;if(a.length<4){s.sendMessage("§c/pvpcombat set <игрок> <damage|health|speed|satiety|ability> <ступень>");return true;}Player t=Bukkit.getPlayerExact(a[1]);if(t==null){s.sendMessage("§cИгрок не найден.");return true;}int v;try{v=Integer.parseInt(a[3]);}catch(NumberFormatException ex){s.sendMessage("§cСтупень должна быть числом.");return true;}PlayerProfile p=stats.profile(t.getUniqueId());switch(a[2].toLowerCase()){case"damage"->p.damageLevel(v);case"health"->p.healthStep(v);case"speed"->p.speedLevel(v);case"satiety"->p.satietyLevel(v);case"ability"->p.abilityLevel(v);default->{s.sendMessage("§cНеизвестная характеристика.");return true;}}stats.clamp(p);stats.apply(t);s.sendMessage("§aХарактеристика изменена.");return true;}private boolean reload(CommandSender s){if(!admin(s))return true;plugin.reloadPluginConfiguration();s.sendMessage("§aPvPCombat config.yml перезагружен.");return true;}private boolean admin(CommandSender s){if(s.hasPermission("pvpcombat.admin"))return true;s.sendMessage("§cНет права pvpcombat.admin.");return false;}}
+package dev.smpcristalix.pvpcombat.command;
+
+import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
+import dev.smpcristalix.pvpcombat.data.PlayerProfile;
+import dev.smpcristalix.pvpcombat.service.GuiService;
+import dev.smpcristalix.pvpcombat.service.ShardService;
+import dev.smpcristalix.pvpcombat.service.StatsService;
+import org.bukkit.Bukkit;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
+
+import java.util.Locale;
+
+/** Админские команды остаются тонкими: игровая логика живёт в сервисах. */
+public final class PvPCombatCommand implements CommandExecutor {
+    private final PvPCombatPlugin plugin;
+    private final GuiService gui;
+    private final ShardService shards;
+    private final StatsService stats;
+
+    public PvPCombatCommand(PvPCombatPlugin plugin, GuiService gui, ShardService shards, StatsService stats) {
+        this.plugin = plugin;
+        this.gui = gui;
+        this.shards = shards;
+        this.stats = stats;
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length == 0) {
+            if (sender instanceof Player player) gui.open(player);
+            else sender.sendMessage("Использование: /pvpcombat stats <игрок>");
+            return true;
+        }
+
+        return switch (args[0].toLowerCase(Locale.ROOT)) {
+            case "stats" -> showStats(sender, args);
+            case "give" -> giveShards(sender, args);
+            case "set" -> setStat(sender, args);
+            case "reload" -> reload(sender);
+            default -> false;
+        };
+    }
+
+    private boolean showStats(CommandSender sender, String[] args) {
+        Player target = args.length >= 2
+                ? Bukkit.getPlayerExact(args[1])
+                : sender instanceof Player player ? player : null;
+        if (target == null) {
+            sender.sendMessage("§cИгрок не найден.");
+            return true;
+        }
+
+        PlayerProfile profile = stats.profile(target.getUniqueId());
+        sender.sendMessage("§dPvPCombat §7— §f" + target.getName());
+        sender.sendMessage("§7Урон: §f" + profile.damageLevel()
+                + " §7| Здоровье: §f" + String.format(Locale.ROOT, "%.1f", stats.healthHearts(profile)) + "❤");
+        sender.sendMessage("§7Скорость: §f" + profile.speedLevel()
+                + " §7| Сытость: §f" + profile.satietyLevel()
+                + " §7| Умения: §f" + profile.abilityLevel());
+        return true;
+    }
+
+    private boolean giveShards(CommandSender sender, String[] args) {
+        if (!requireAdmin(sender)) return true;
+        if (args.length < 3) {
+            sender.sendMessage("§c/pvpcombat give <игрок> <количество>");
+            return true;
+        }
+
+        Player target = Bukkit.getPlayerExact(args[1]);
+        if (target == null) {
+            sender.sendMessage("§cИгрок не найден.");
+            return true;
+        }
+
+        Integer amount = parseInteger(args[2]);
+        if (amount == null || amount <= 0) {
+            sender.sendMessage("§cКоличество должно быть целым числом больше 0.");
+            return true;
+        }
+
+        shards.give(target, amount);
+        sender.sendMessage("§aВыдано " + amount + " Осколков игроку " + target.getName() + ".");
+        return true;
+    }
+
+    private boolean setStat(CommandSender sender, String[] args) {
+        if (!requireAdmin(sender)) return true;
+        if (args.length < 4) {
+            sender.sendMessage("§c/pvpcombat set <игрок> <damage|health|speed|satiety|ability> <ступень>");
+            sender.sendMessage("§7Для health: 0 = базовые 10 сердец, отрицательные значения — штрафная зона.");
+            return true;
+        }
+
+        Player target = Bukkit.getPlayerExact(args[1]);
+        if (target == null) {
+            sender.sendMessage("§cИгрок не найден.");
+            return true;
+        }
+
+        Integer value = parseInteger(args[3]);
+        if (value == null) {
+            sender.sendMessage("§cСтупень должна быть целым числом.");
+            return true;
+        }
+
+        PlayerProfile profile = stats.profile(target.getUniqueId());
+        switch (args[2].toLowerCase(Locale.ROOT)) {
+            case "damage" -> profile.damageLevel(value);
+            case "health" -> profile.healthStep(value);
+            case "speed" -> profile.speedLevel(value);
+            case "satiety" -> profile.satietyLevel(value);
+            case "ability" -> profile.abilityLevel(value);
+            default -> {
+                sender.sendMessage("§cНеизвестная характеристика.");
+                return true;
+            }
+        }
+
+        stats.clamp(profile);
+        stats.apply(target);
+        sender.sendMessage("§aХарактеристика изменена.");
+        return true;
+    }
+
+    private boolean reload(CommandSender sender) {
+        if (!requireAdmin(sender)) return true;
+        plugin.reloadPluginConfiguration();
+        sender.sendMessage("§aPvPCombat config.yml перезагружен.");
+        return true;
+    }
+
+    private boolean requireAdmin(CommandSender sender) {
+        if (sender.hasPermission("pvpcombat.admin")) return true;
+        sender.sendMessage("§cНет права pvpcombat.admin.");
+        return false;
+    }
+
+    private Integer parseInteger(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+}
