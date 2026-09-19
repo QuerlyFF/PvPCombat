@@ -6,6 +6,7 @@ on:
       - main
       - 'fix/**'
       - 'feature/**'
+      - 'refactor/**'
   pull_request:
     branches:
       - main
@@ -16,13 +17,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check Java source style
+        run: python3 .github/scripts/check_java_style.py
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
+
       - name: Build
         run: mvn -B clean package
+
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
