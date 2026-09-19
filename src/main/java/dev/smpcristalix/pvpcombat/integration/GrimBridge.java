@@ -12,7 +12,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 
 /** Необязательная typed-интеграция с актуальным GrimAPI. */
-public final class GrimBridge {
+public final class GrimBridge implements IntegrationBridge {
     private final PvPCombatPlugin plugin;
     private final AbilityService abilities;
     private EventBus eventBus;
@@ -24,6 +24,7 @@ public final class GrimBridge {
         this.abilities = abilities;
     }
 
+    @Override
     public boolean registerIfAvailable() {
         unregister();
         if (!plugin.getSettings().grimIntegrationEnabled()) return false;
@@ -58,11 +59,7 @@ public final class GrimBridge {
         }
     }
 
-    /** Reload конфигурации может включать/выключать интеграцию без restart сервера. */
-    public void reload() {
-        registerIfAvailable();
-    }
-
+    @Override
     public void unregister() {
         if (!registered || eventBus == null || grimPlugin == null) return;
         try {

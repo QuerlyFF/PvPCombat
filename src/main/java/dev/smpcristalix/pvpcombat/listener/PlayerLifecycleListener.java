@@ -41,6 +41,7 @@ public final class PlayerLifecycleListener implements Listener {
         int pending = store.removePendingShards(player.getUniqueId());
         if (pending > 0) {
             shards.give(player, pending);
+            store.saveAsync();
             player.sendMessage("§dПолучены отложенные PvP-награды: " + pending + " Осколок(ов).");
         }
     }

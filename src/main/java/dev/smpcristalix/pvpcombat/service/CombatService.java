@@ -42,7 +42,7 @@ public final class CombatService {
         UUID id = player.getUniqueId();
         CombatState old = states.get(id);
         if (old == null || old.expiresAt <= now) {
-            states.put(id, new CombatState(opponent, now, expiry));
+            states.put(id, new CombatState(opponent, expiry));
             return true;
         }
         old.opponent = opponent;
@@ -91,6 +91,10 @@ public final class CombatService {
         forcedKillers.put(victimId, killerId);
     }
 
+    public void clearForcedKiller(UUID victimId) {
+        forcedKillers.remove(victimId);
+    }
+
     public UUID consumeForcedKiller(Player victim) {
         return forcedKillers.remove(victim.getUniqueId());
     }
@@ -124,12 +128,10 @@ public final class CombatService {
 
     private static final class CombatState {
         private UUID opponent;
-        private final long startedAt;
         private long expiresAt;
 
-        private CombatState(UUID opponent, long startedAt, long expiresAt) {
+        private CombatState(UUID opponent, long expiresAt) {
             this.opponent = opponent;
-            this.startedAt = startedAt;
             this.expiresAt = expiresAt;
         }
     }

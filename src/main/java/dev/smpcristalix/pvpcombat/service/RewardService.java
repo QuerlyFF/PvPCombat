@@ -39,6 +39,9 @@ public final class RewardService {
         Player onlineKiller = Bukkit.getPlayer(killerId);
         if (onlineKiller != null) shards.give(onlineKiller, 1);
         else store.addPendingShards(killerId, 1);
+
+        // Награда и anti-farm cooldown критичны: не ждём минутного autosave.
+        store.saveAsync();
         return true;
     }
 

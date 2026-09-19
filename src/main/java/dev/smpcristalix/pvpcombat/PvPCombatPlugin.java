@@ -6,7 +6,7 @@ import dev.smpcristalix.pvpcombat.command.PvPCombatCommand;
 import dev.smpcristalix.pvpcombat.config.ConfigValidator;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import dev.smpcristalix.pvpcombat.data.YamlDataStore;
-import dev.smpcristalix.pvpcombat.integration.GrimBridge;
+import dev.smpcristalix.pvpcombat.integration.IntegrationBridge;
 import dev.smpcristalix.pvpcombat.listener.ArmorDurabilityListener;
 import dev.smpcristalix.pvpcombat.listener.CombatListener;
 import dev.smpcristalix.pvpcombat.listener.DeathListener;
@@ -34,6 +34,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /** Composition root PvPCombat: связывает сервисы, listener'ы и жизненный цикл. */
 public final class PvPCombatPlugin extends JavaPlugin {
+    private static final String GRIM_BRIDGE_CLASS = "dev.smpcristalix.pvpcombat.integration.GrimBridge";
+
     public static NamespacedKey PROJECTILE_WEAPON_KEY;
     public static NamespacedKey TROPHY_TOTEM_KEY;
 
@@ -50,7 +52,7 @@ public final class PvPCombatPlugin extends JavaPlugin {
     private GuiService gui;
     private ScoreboardService scoreboard;
     private NoticeService notices;
-    private GrimBridge grimBridge;
+    private IntegrationBridge grimBridge;
 
     private CombatListener combatListener;
     private MovementListener movementListener;
@@ -81,17 +83,16 @@ public final class PvPCombatPlugin extends JavaPlugin {
         pearls = new PearlService(settings);
         notices = new NoticeService(settings);
         abilities = new AbilityService(this, stats, combat, settings);
-        penalties = new DeathPenaltyService(stats, settings);
+        penalties = new DeathPenaltyService(stats, store, settings);
         rewards = new RewardService(store, shards, settings);
-        upgrades = new UpgradeService(stats, shards, settings);
+        upgrades = new UpgradeService(stats, shards, store, settings);
         gui = new GuiService(stats, shards);
         scoreboard = new ScoreboardService(combat, pearls, notices, settings);
-        grimBridge = new GrimBridge(this, abilities);
 
         registerListeners();
         registerCommand();
         registerApi();
-        grimBridge.registerIfAvailable();
+        loadOptionalGrimBridge();
         Bukkit.getOnlinePlayers().forEach(stats::apply);
         startSchedulers();
 
@@ -126,7 +127,9 @@ public final class PvPCombatPlugin extends JavaPlugin {
 
     private void registerCommand() {
         var command = getCommand("pvpcombat");
-        if (command != null) command.setExecutor(new PvPCombatCommand(this, gui, shards, stats));
+        if (command != null) {
+            command.setExecutor(new PvPCombatCommand(this, gui, shards, stats, store));
+        }
     }
 
     private void registerApi() {
@@ -138,6 +141,30 @@ public final class PvPCombatPlugin extends JavaPlugin {
         );
     }
 
+    /**
+     * Grim остаётся полностью optional. Класс с GrimAPI-сигнатурами загружается отражением
+     * только после того, как сервер подтвердил наличие и enabled-состояние GrimAC.
+     */
+    private void loadOptionalGrimBridge() {
+        if (!settings.grimIntegrationEnabled()) return;
+        if (!Bukkit.getPluginManager().isPluginEnabled("GrimAC")) return;
+
+        try {
+            Class<?> rawBridge = Class.forName(GRIM_BRIDGE_CLASS, true, getClassLoader());
+            if (!IntegrationBridge.class.isAssignableFrom(rawBridge)) {
+                getLogger().warning("Grim bridge имеет несовместимый внутренний контракт.");
+                return;
+            }
+
+            var constructor = rawBridge.getConstructor(PvPCombatPlugin.class, AbilityService.class);
+            grimBridge = (IntegrationBridge) constructor.newInstance(this, abilities);
+            grimBridge.registerIfAvailable();
+        } catch (ReflectiveOperationException | LinkageError ex) {
+            grimBridge = null;
+            getLogger().warning("GrimAC bridge не подключён: " + ex.getMessage());
+        }
+    }
+
     private void startSchedulers() {
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             combat.clearExpired();
@@ -147,7 +174,6 @@ public final class PvPCombatPlugin extends JavaPlugin {
         Bukkit.getScheduler().runTaskTimer(this, () ->
                 Bukkit.getOnlinePlayers().forEach(totemListener::enforceLimit), 20L, 20L);
 
-        // Snapshot делается на main thread, физическая запись YAML — async и атомарно.
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             rewards.cleanupExpired();
             store.saveAsync();
@@ -177,7 +203,10 @@ public final class PvPCombatPlugin extends JavaPlugin {
         movementListener.reload(settings);
         totemListener.reload(settings);
         deathListener.reload(settings);
-        if (grimBridge != null) grimBridge.reload();
+
+        if (grimBridge != null) grimBridge.unregister();
+        grimBridge = null;
+        loadOptionalGrimBridge();
         Bukkit.getOnlinePlayers().forEach(stats::apply);
         return null;
     }

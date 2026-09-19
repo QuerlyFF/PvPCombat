@@ -28,7 +28,7 @@ public final class YamlDataStore {
     private final Map<UUID, PlayerProfile> profiles = new HashMap<>();
     private final Map<String, Long> rewardCooldowns = new HashMap<>();
     private final Map<UUID, Integer> pendingShards = new HashMap<>();
-    private long lastWrittenSequence;
+    private long latestAcceptedSequence;
 
     public YamlDataStore(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -130,8 +130,8 @@ public final class YamlDataStore {
     }
 
     /**
-     * Снимок всегда создаётся на server thread, а YAML сериализуется асинхронно.
-     * Повторный запрос во время записи не теряется: после неё запускается ещё один снимок.
+     * Снимок создаётся на server thread, YAML сериализуется асинхронно.
+     * Повторный запрос во время записи не теряется: после неё запускается свежий снимок.
      */
     public void saveAsync() {
         if (!asyncSaveRunning.compareAndSet(false, true)) {
@@ -146,13 +146,17 @@ public final class YamlDataStore {
             } finally {
                 asyncSaveRunning.set(false);
                 if (asyncSaveRequested.getAndSet(false) && plugin.isEnabled()) {
-                    Bukkit.getScheduler().runTask(plugin, this::saveAsync);
+                    try {
+                        Bukkit.getScheduler().runTask(plugin, this::saveAsync);
+                    } catch (RuntimeException ignored) {
+                        // Plugin мог выключиться между isEnabled() и постановкой задачи.
+                    }
                 }
             }
         });
     }
 
-    /** Синхронный финальный save получает более новый sequence и не может быть затёрт старым async snapshot. */
+    /** Синхронный финальный save имеет новый sequence, поэтому старый async snapshot его не затрёт. */
     public void save() {
         writeSnapshot(snapshot());
     }
@@ -194,13 +198,14 @@ public final class YamlDataStore {
         );
 
         synchronized (ioLock) {
-            if (snapshot.sequence() <= lastWrittenSequence) return;
+            if (snapshot.sequence() <= latestAcceptedSequence) return;
+            // Sequence принимается до I/O: даже если свежая запись упадёт, старый snapshot уже не перетрёт файл.
+            latestAcceptedSequence = snapshot.sequence();
             try {
                 if (!plugin.getDataFolder().exists()) plugin.getDataFolder().mkdirs();
                 File temp = new File(plugin.getDataFolder(), "data.yml.tmp");
                 yaml.save(temp);
                 moveAtomically(temp, file);
-                lastWrittenSequence = snapshot.sequence();
             } catch (IOException ex) {
                 plugin.getLogger().severe("Не удалось сохранить data.yml: " + ex.getMessage());
             }

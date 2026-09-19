@@ -3,6 +3,7 @@ package dev.smpcristalix.pvpcombat.command;
 import dev.smpcristalix.pvpcombat.PvPCombatPlugin;
 import dev.smpcristalix.pvpcombat.api.event.PlayerStatChangeEvent;
 import dev.smpcristalix.pvpcombat.data.PlayerProfile;
+import dev.smpcristalix.pvpcombat.data.YamlDataStore;
 import dev.smpcristalix.pvpcombat.service.GuiService;
 import dev.smpcristalix.pvpcombat.service.ShardService;
 import dev.smpcristalix.pvpcombat.service.StatsService;
@@ -20,12 +21,15 @@ public final class PvPCombatCommand implements CommandExecutor {
     private final GuiService gui;
     private final ShardService shards;
     private final StatsService stats;
+    private final YamlDataStore store;
 
-    public PvPCombatCommand(PvPCombatPlugin plugin, GuiService gui, ShardService shards, StatsService stats) {
+    public PvPCombatCommand(PvPCombatPlugin plugin, GuiService gui, ShardService shards,
+                            StatsService stats, YamlDataStore store) {
         this.plugin = plugin;
         this.gui = gui;
         this.shards = shards;
         this.stats = stats;
+        this.store = store;
     }
 
     @Override
@@ -93,7 +97,9 @@ public final class PvPCombatCommand implements CommandExecutor {
         if (!requireAdmin(sender)) return true;
         if (args.length < 4) {
             sender.sendMessage("§c/pvpcombat set <игрок> <damage|health|speed|satiety|ability> <ступень>");
-            sender.sendMessage("§7Для health: 0 = базовые 10 сердец, отрицательные значения — штрафная зона.");
+            sender.sendMessage("§7Для health: 0 = базовые "
+                    + formatHearts(plugin.getSettings().baseHealthHearts())
+                    + " сердец, отрицательные значения — штрафная зона.");
             return true;
         }
 
@@ -154,6 +160,7 @@ public final class PvPCombatCommand implements CommandExecutor {
             case ABILITY -> profile.abilityLevel();
         };
         if (oldValue != newValue) {
+            store.saveAsync();
             Bukkit.getPluginManager().callEvent(new PlayerStatChangeEvent(
                     target,
                     stat,
@@ -186,5 +193,11 @@ public final class PvPCombatCommand implements CommandExecutor {
         } catch (NumberFormatException ignored) {
             return null;
         }
+    }
+
+    private String formatHearts(double hearts) {
+        return hearts == Math.rint(hearts)
+                ? Integer.toString((int) hearts)
+                : String.format(Locale.ROOT, "%.1f", hearts);
     }
 }

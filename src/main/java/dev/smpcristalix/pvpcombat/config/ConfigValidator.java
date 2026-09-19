@@ -36,6 +36,9 @@ public final class ConfigValidator {
         validateAbilityTables(errors, config);
         validateItem(errors, config);
 
+        for (String stat : List.of("ability", "damage", "health", "speed", "satiety")) {
+            nonNegative(errors, config, "death-penalty.weights." + stat);
+        }
         if (config.getInt("totems.max-carried", 2) < 0) {
             errors.add("totems.max-carried не может быть отрицательным");
         }

@@ -53,6 +53,7 @@ public final class PvPCombatApiImpl implements PvPCombatApi {
     @Override
     public PlayerStatsSnapshot getStats(UUID playerId) {
         var profile = stats.profile(playerId);
+        stats.clamp(profile);
         return new PlayerStatsSnapshot(
                 profile.damageLevel(),
                 stats.healthHearts(profile),

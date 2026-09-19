@@ -202,6 +202,10 @@ public final class AbilityService {
         try {
             if (attacker.isOnline()) {
                 victim.damage(lethalDamageAmount(victim), attacker);
+                // Тотем может спасти игрока: тогда forced killer не должен жить до будущей смерти.
+                if (!victim.isDead() && victim.getHealth() > 0.0) {
+                    combat.clearForcedKiller(victimId);
+                }
             } else {
                 victim.setHealth(0.0);
             }

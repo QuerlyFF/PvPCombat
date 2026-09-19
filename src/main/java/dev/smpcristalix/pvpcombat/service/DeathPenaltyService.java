@@ -3,6 +3,7 @@ package dev.smpcristalix.pvpcombat.service;
 import dev.smpcristalix.pvpcombat.api.event.PlayerStatChangeEvent;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import dev.smpcristalix.pvpcombat.data.PlayerProfile;
+import dev.smpcristalix.pvpcombat.data.YamlDataStore;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -13,10 +14,12 @@ import java.util.concurrent.ThreadLocalRandom;
 /** Снимает ровно одну доступную ступень и соблюдает cooldown штрафа смерти. */
 public final class DeathPenaltyService {
     private final StatsService stats;
+    private final YamlDataStore store;
     private PvPCombatSettings settings;
 
-    public DeathPenaltyService(StatsService stats, PvPCombatSettings settings) {
+    public DeathPenaltyService(StatsService stats, YamlDataStore store, PvPCombatSettings settings) {
         this.stats = stats;
+        this.store = store;
         this.settings = settings;
     }
 
@@ -34,23 +37,23 @@ public final class DeathPenaltyService {
         addCandidate(candidates, profile.abilityLevel() > 0, "Умения", "ability",
                 PlayerStatChangeEvent.Stat.ABILITY,
                 profile::abilityLevel,
-                value -> profile.abilityLevel(value));
+                profile::abilityLevel);
         addCandidate(candidates, profile.damageLevel() > 0, "Урон", "damage",
                 PlayerStatChangeEvent.Stat.DAMAGE,
                 profile::damageLevel,
-                value -> profile.damageLevel(value));
+                profile::damageLevel);
         addCandidate(candidates, profile.healthStep() > stats.minHealthStep(), "Здоровье", "health",
                 PlayerStatChangeEvent.Stat.HEALTH,
                 profile::healthStep,
-                value -> profile.healthStep(value));
+                profile::healthStep);
         addCandidate(candidates, profile.speedLevel() > 0, "Скорость", "speed",
                 PlayerStatChangeEvent.Stat.SPEED,
                 profile::speedLevel,
-                value -> profile.speedLevel(value));
+                profile::speedLevel);
         addCandidate(candidates, profile.satietyLevel() > 0, "Сытость", "satiety",
                 PlayerStatChangeEvent.Stat.SATIETY,
                 profile::satietyLevel,
-                value -> profile.satietyLevel(value));
+                profile::satietyLevel);
 
         int totalWeight = candidates.stream().mapToInt(Candidate::weight).sum();
         if (totalWeight <= 0) return null;
@@ -65,6 +68,7 @@ public final class DeathPenaltyService {
             candidate.setter().set(newValue);
             profile.lastStatLossAt(now);
             stats.apply(player);
+            store.saveAsync();
             Bukkit.getPluginManager().callEvent(new PlayerStatChangeEvent(
                     player,
                     candidate.stat(),

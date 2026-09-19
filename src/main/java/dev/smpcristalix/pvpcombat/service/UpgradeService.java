@@ -3,6 +3,7 @@ package dev.smpcristalix.pvpcombat.service;
 import dev.smpcristalix.pvpcombat.api.event.PlayerStatChangeEvent;
 import dev.smpcristalix.pvpcombat.config.PvPCombatSettings;
 import dev.smpcristalix.pvpcombat.data.PlayerProfile;
+import dev.smpcristalix.pvpcombat.data.YamlDataStore;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -10,11 +11,14 @@ import org.bukkit.entity.Player;
 public final class UpgradeService {
     private final StatsService stats;
     private final ShardService shards;
+    private final YamlDataStore store;
     private PvPCombatSettings settings;
 
-    public UpgradeService(StatsService stats, ShardService shards, PvPCombatSettings settings) {
+    public UpgradeService(StatsService stats, ShardService shards, YamlDataStore store,
+                          PvPCombatSettings settings) {
         this.stats = stats;
         this.shards = shards;
+        this.store = store;
         this.settings = settings;
     }
 
@@ -37,6 +41,7 @@ public final class UpgradeService {
         int newValue = oldValue + 1;
         setValue(profile, stat, newValue);
         stats.apply(player);
+        store.saveAsync();
         Bukkit.getPluginManager().callEvent(new PlayerStatChangeEvent(
                 player,
                 apiStat(stat),
